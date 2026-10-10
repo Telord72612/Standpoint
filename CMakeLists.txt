@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(Standpoint LANGUAGES CXX VERSION 0.9.9)
+project(Standpoint LANGUAGES CXX VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -35,7 +35,7 @@ namespace standpoint_avoid {
 }
 
 SKSEPluginInfo(
-    .Version              = { 0, 9, 9 },
+    .Version              = { 1, 0, 0 },
     .Name                 = "Standpoint",
     .Author               = "mad72",
     .StructCompatibility  = SKSE::StructCompatibility::Independent,
@@ -258,7 +258,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse)
     // (run-once package type 36) with no movement for 1 s ends a leg at once; a close request to an NPC that cannot be
     // walked answers O, detail 17 (kDetailNoWay), Standpoint_Failed 7, and releases her - no longer "completed, stopped
     // short" far from the point. No change in the DLL's logic.
-    logger::info("Standpoint v0.9.9 loaded (the move API: C++ interface revision 2; danger=DROP - loaded actors of the walker's "
+    // v1.0.0 (2026-10-10): THE FIRST PUBLIC RELEASE ("V1"). The code of 0.9.9 with the version number changed -
+    // nothing else. Published at https://github.com/Telord72612/Standpoint, public domain.
+    logger::info("Standpoint v1.0.0 loaded (the move API: C++ interface revision 2; danger=DROP - loaded actors of the walker's "
                  "own cell only; an actor's blocked side is skipped; a walker stuck short turns to her face target)");
 
     if (auto* msg = SKSE::GetMessagingInterface()) {

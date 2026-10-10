@@ -92,8 +92,8 @@ Edit it with xEdit or the Creation Kit, or round-trip it through
 Start the game and read `SKSE/Standpoint.log`:
 
 ```
-Standpoint v0.9.9 loaded (...)
-driver v0.9.9 ready (engine=TRUE sa=...)
+Standpoint v1.0.0 loaded (...)
+driver v1.0.0 ready (engine=TRUE sa=...)
 ```
 
 `engine=TRUE` proves the four packages resolved. Then run the console test: click an NPC, `stpt`,

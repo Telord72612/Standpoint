@@ -1,5 +1,5 @@
 Scriptname Standpoint Native Hidden
-{ Standpoint SKSE plugin natives (v0.9.9). SHIPS with the mod. }
+{ Standpoint SKSE plugin natives (v1.0.0). SHIPS with the mod. }
 
 ; Write a line to SKSE/Standpoint.log (pure Papyrus cannot reach that file).
 Function Log(String asMsg) Global Native

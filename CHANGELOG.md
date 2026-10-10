@@ -2,6 +2,10 @@
 
 Every entry was measured in Skyrim VR unless it says otherwise.
 
+## 1.0.0 — the first public release ("V1")
+- The code of 0.9.9 with the version number changed. Nothing else.
+- Released into the public domain.
+
 ## 0.9.9 — blocked means blocked
 - When the engine reports "movement blocked" and she has not moved for a second, Standpoint reacts at
   once instead of waiting out its 3 s / 8 s stall time: a blocked step back goes around instead, a

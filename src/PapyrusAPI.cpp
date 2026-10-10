@@ -113,7 +113,7 @@ std::vector<float> SolveSlot(RE::StaticFunctionTag*, RE::TESObjectREFR* a_target
 
 std::string GetPluginVersion(RE::StaticFunctionTag*)
 {
-    return "0.9.9";  // "" when the DLL is absent = the WaterFinder soft-dep contract
+    return "1.0.0";  // "" when the DLL is absent = the WaterFinder soft-dep contract
 }
 
 bool IsPlayerGrabbing(RE::StaticFunctionTag*, RE::Actor* a_actor)
