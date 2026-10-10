@@ -32,19 +32,88 @@ That is all there is to it. The rest of this page explains the ten values and th
 | # | Name | In plain words | Example |
 |---|---|---|---|
 | 1 | `who` | The NPC who should move. | Lydia |
-| 2 | `where` | What she walks to: a person, a chair, an object, a marker — anything you can click in the console. | the chair |
+| 2 | `where` | What she walks to. | the chair |
 | 3 | `distanceCm` | How far from the middle of the target she stands, in centimetres. | `100` |
-| 4 | `facing` | **Which side** of the target she stands on, as an hour on a clock (see below). | `3` = its right |
-| 5 | `orientation` | **Which way she looks** once there, also as a clock hour. `12` = at the target. | `12` |
-| 6 | `pose` | `0` just stands · `1` waits, hands behind her back · `2` kneels · `3` bends over | `1` |
-| 7 | `holdSeconds` | How long she stays. `0` = leave right away · `-1` = until you release her. | `10` |
-| 8 | `close` | `1` = the two may stand really close (see [Close contact](#close-contact)). Otherwise `0`. | `0` |
+| 4 | `facing` | **Which side** of the target she stands on, as an hour on a clock. | `3` = its right |
+| 5 | `orientation` | **Which way she looks** once there, also as a clock hour. | `12` = at the target |
+| 6 | `pose` | What she does with her body once there. | `1` = waits |
+| 7 | `holdSeconds` | How long she stays. | `10` |
+| 8 | `close` | Normal distance rules (`0`) or close contact (`1`). | `0` |
 | 9, 10 | | Not used yet. Send `0`. | |
 
-### The clock
+### One request, said out loud
 
-Slot 4 says where around the target she stands. Picture a clock lying on the floor with the target in the
-middle and **12 o'clock pointing where the target is facing**:
+> *"Lydia, go to the chair. Stand one metre from it, on its right side, looking at it. Hands behind your back.
+> Stay ten seconds."*
+
+| who | where | distanceCm | facing | orientation | pose | holdSeconds | close |
+|---|---|---|---|---|---|---|---|
+| Lydia | the chair | 100 | 3 | 12 | 1 | 10 | 0 |
+
+---
+
+## Every value, and every choice it has
+
+### 1 · `who` — the NPC who moves
+
+You give her **RefID**: the ID of that one person standing in the world. In a plugin it is `actor->GetFormID()`.
+
+| You can send | Example | |
+|---|---|---|
+| Any NPC who is loaded near the player | Lydia → `000A2C94` | A follower, a townsperson, a guard — anyone. |
+| An NPC added by a mod | `DB000243` | The first two digits are the mod's place in the load order, so read the ID while the game runs; never type it into your code. |
+
+| You cannot send | What you get back |
+|---|---|
+| The player | `O` `10` (bad request) — Standpoint only moves NPCs |
+| A **BaseID** (Lydia's is `000A2C8E`) | `O` `10` — a BaseID is the *recipe* for a person, not the person |
+| An NPC who is far away and not loaded | `O` `10` |
+
+> **RefID or BaseID?** Click something in the console: the number at the top of the screen is its **RefID** —
+> that is the one Standpoint wants. The IDs listed by the console's `help` command are BaseIDs.
+
+### 2 · `where` — what she walks to
+
+Also a **RefID**. Anything you can click in the console works.
+
+| You can send | Example | What "its front" means (for slot 4) |
+|---|---|---|
+| The player | `00000014` | The way the player's body faces. |
+| Another NPC | her RefID | The way she faces. |
+| Furniture | that one chair, bed or bench | The way the object itself points in the world. |
+| An object | a cup on a table, a chest, a lever, a door | The way the object itself points. |
+| A marker | an X-marker or heading marker, even an invisible one you placed yourself | The way the marker points. |
+| **`0`** | | *"Let her go."* She stops whatever Standpoint had her doing. |
+| **The same ID as `who`** | | *"Stay where you are."* She is pinned on the spot she stands on, facing the way she faces. |
+
+| You cannot send | What you get back |
+|---|---|
+| A BaseID (*"any chair"*) | `O` `10` — there may be fifty chairs made from one BaseID; Standpoint has to know which one |
+| Something that is not in the world (an item inside a container or an inventory) | `O` `10` |
+
+The target has to be in the area that is loaded around the player.
+
+### 3 · `distanceCm` — how far from the target
+
+Measured from the **middle of the target** to where she stands, in centimetres.
+
+| You send | Good for | |
+|---|---|---|
+| `150` | Talking distance. | |
+| `100` | About an arm's length. | |
+| `63` or less, target is a person, `close = 0` | | She stops at about 63 cm: people keep a body's width apart. Set `close = 1` to go nearer. |
+| `45`, `close = 1` | Touching distance. | |
+| `30`, `close = 1` | As near as two people can be walked. | Nearer than about 30 cm they would be inside each other. |
+| Any distance, target is furniture or an object | | She never stands nearer than the object's own size plus her own body. |
+| `0`, target is a marker | *"Stand exactly on it."* | She then faces the way the marker points (slot 5 turns her from there). |
+
+If she cannot stand as near as you asked, she is placed as near as allowed, and the answer tells you the real
+distance.
+
+### 4 · `facing` — which side of the target
+
+A clock hour. Picture a clock lying on the floor with the target in the middle and **12 o'clock pointing where
+the target is facing**:
 
 ```
                     12   in front of the target
@@ -58,24 +127,91 @@ middle and **12 o'clock pointing where the target is facing**:
                      6   behind it
 ```
 
-Decimals work (`1.5`), and `-1` means "whichever side she is already nearest to".
+| You send | She stands |
+|---|---|
+| `12` (or `0`) | in front of the target |
+| `3` | on its right |
+| `6` | behind it |
+| `9` | on its left |
+| `1.5`, `4`, `10.5` … | anywhere in between — any number from 0 to 12 |
+| `-1` | on whichever side she is already nearest to |
 
-Slot 5 uses the same idea for **her own** facing: `12` = she looks at the target, `6` = she has her back to
-it, `3` = turned to her right.
+If that side has no room (a wall, a table), she is put on the nearest side that does, and the answer tells you
+which hour she really got.
 
-### One request, said out loud
+### 5 · `orientation` — which way she looks
 
-> *"Lydia, go to the chair. Stand one metre from it, on its right side, looking at it. Hands behind your back.
-> Stay ten seconds."*
+Another clock hour, this time about **her**: where is she turned, compared with looking straight at the target?
 
-| who | where | distanceCm | facing | orientation | pose | holdSeconds | close |
-|---|---|---|---|---|---|---|---|
-| Lydia | the chair | 100 | 3 | 12 | 1 | 10 | 0 |
+| You send | She |
+|---|---|
+| `12` (or `0`) | looks at the target |
+| `3` | is turned to her right — the target is at her left shoulder |
+| `6` | has her back to the target |
+| `9` | is turned to her left — the target is at her right shoulder |
+| anything in between | is turned by that much |
 
-Two special requests:
+### 6 · `pose` — the four poses
 
-- **Let her go:** send her `who` with `where = 0`. She stops whatever Standpoint had her doing.
-- **Stay where you are:** send `where` = the same NPC as `who`. She is pinned on the spot she stands on.
+| You send | Name | What you see | Use it for |
+|---|---|---|---|
+| `0` | **Plain stand** | She just stands there, relaxed, like any idle NPC — but she does not wander off. | Scenes where the hands must be free, or where you play your own animation on her. |
+| `1` | **Standard wait** | She stands with her hands clasped behind her back. | Waiting politely. The usual choice. |
+| `2` | **Kneel** | She arrives, then kneels down to the floor once (about three seconds), as if picking something up. | Something lying on the ground. |
+| `3` | **Bend** | She arrives, then bends forward once, as if taking something off a table. | Something on a table, a shelf or a counter. |
+
+Poses `2` and `3` are played **once**, right after your answer arrives — so the moment you get `C` is the moment
+to do your own part (give her the item, play a sound). Afterwards she stands in the standard wait for the rest
+of her stay. Her feet do not move while she kneels.
+
+### 7 · `holdSeconds` — how long she stays
+
+| You send | What happens |
+|---|---|
+| `0` | She is let go the moment she has arrived, and goes back to her own life. |
+| `10` (any number) | She stays that many seconds, then is let go by herself. |
+| `-1` | She stays until you let her go (a request with `where = 0`) or send her somewhere else. |
+
+Your answer always arrives **when she gets there**, not when the stay is over. While she stays she does not
+move at all — if an NPC looks frozen, this is why.
+
+### 8 · `close` — `0` or `1`
+
+This switches between two sets of rules for getting near a **person**.
+
+| | `close = 0` — normal | `close = 1` — close contact |
+|---|---|---|
+| How near a person she can stand | About **63 cm**, however little you ask for. | **Exactly what you ask for**, down to about 30 cm. |
+| The two bodies | Bump into each other, as always. | Pass into each other's space for as long as the request runs (VR with HIGGS). Walls and everyone else stay solid. |
+| She is asked to another side of the same person | The game's own path-finding is left to it. | She steps back, walks around and comes in on that side. |
+| She stops a little short | She is taken where she stands. | She walks in once more from further out before she is taken where she stands. |
+| The player walks into her, or stands in her way | The walk is cancelled (`P`). | It carries on. (Grabbing her in VR still cancels it.) |
+| The way is blocked | She waits; after 90 seconds you get `O`. | She notices in a second or two and tries another way; if there is none you get `O` `17`. |
+
+Use **`0`** for everything at normal distance: a conversation, standing beside a bed, a guard at a door.
+Use **`1`** when two NPCs must be within touching distance: handing something over, a hug, a hand on a shoulder.
+
+For furniture and objects `close` does not bring her nearer: the object's own size is still in the way.
+With the **player** as the target, `close = 1` only lifts the distance limit; stepping around and passing into
+each other's space are for one NPC approaching another.
+
+### 9 and 10
+
+Not used yet. Send `0`.
+
+### A few complete requests
+
+| What you want | who | where | distanceCm | facing | orientation | pose | holdSeconds | close |
+|---|---|---|---|---|---|---|---|---|
+| Come and talk to the player | NPC | `00000014` | 150 | 12 | 12 | 1 | 20 | 0 |
+| Stand on the left of the bed, facing it, until told | NPC | the bed | 100 | 9 | 12 | 1 | -1 | 0 |
+| Stand guard in front of a door, back to it | NPC | the door | 120 | 12 | 6 | 1 | -1 | 0 |
+| Pick up a coin from the floor | NPC | the coin | 60 | -1 | 12 | 2 | 5 | 0 |
+| Take a cup from a table | NPC | the cup | 80 | -1 | 12 | 3 | 5 | 0 |
+| Stand exactly on my marker, looking the way it points | NPC | the marker | 0 | 12 | 12 | 0 | -1 | 0 |
+| Step up to another NPC for a hug | NPC | the other NPC | 30 | 12 | 12 | 0 | 15 | 1 |
+| Keep that other NPC still while she comes | the other NPC | the same NPC | 0 | 0 | 0 | 0 | -1 | 0 |
+| Let her go | NPC | `0` | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ---
 
