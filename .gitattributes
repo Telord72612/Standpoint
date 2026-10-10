@@ -1,0 +1,5 @@
+# keep every file byte for byte as it is (no line-ending conversion)
+* -text
+*.pex binary
+*.esp binary
+*.dll binary
