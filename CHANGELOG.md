@@ -2,6 +2,17 @@
 
 Every entry was measured in Skyrim VR unless it says otherwise.
 
+## 1.1.0 — works on Skyrim AE 1.7 ("V1.1")
+- **Fixed:** on Skyrim AE 1.7.x the game stopped at start with an Address Library error
+  ("failed to open address library file", `REL/ID.h` line 223). Standpoint was built on an older CommonLib
+  that only knew AE as version 1.6, so it took 1.7 for the old Special Edition and looked for the wrong
+  Address Library file. It is now built on CommonLibVR 8.3.0, which knows 1.7.
+- The DLL now also carries the "Address Library V5" mark that SKSE64 2.3.0 asks for on AE 1.7.99 and later
+  (without it SKSE refuses the plugin).
+- A leftover diagnostic probe that only makes sense on Skyrim VR no longer runs on SE / AE.
+- Nothing else changed in what Standpoint does.
+- Not yet run in game.
+
 ## 1.0.0 — the first public release ("V1")
 - The code of 0.9.9 with the version number changed. Nothing else.
 - Released into the public domain.

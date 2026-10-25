@@ -1,5 +1,5 @@
 Scriptname Standpoint_PlayerAlias extends ReferenceAlias
-{ Standpoint driver (v1.0.0; the slot engine dates from v0.4.0). Lives on alias 0 (player) of Standpoint_Quest so it is
+{ Standpoint driver (v1.1.0; the slot engine dates from v0.4.0). Lives on alias 0 (player) of Standpoint_Quest so it is
   permanently bound (the WFTest lesson: never drive from a fire-and-forget magic effect).
 
   S3 SLOT ENGINE: 4 concurrent walker sessions. Slot i uses marker alias (i+1) and its
@@ -179,7 +179,7 @@ Function Setup()
     If saAvailable
         RegisterForModEvent("SeverActions_TravelComplete", "OnTravelComplete")
     EndIf
-    Standpoint.Log("driver v1.0.0 ready (engine=" + engineReady + " sa=" + saAvailable + ")")
+    Standpoint.Log("driver v1.1.0 ready (engine=" + engineReady + " sa=" + saAvailable + ")")
 EndFunction
 
 ; =========================== THE SLOT ENGINE ================================

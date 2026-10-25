@@ -12,7 +12,12 @@ need to rebuild the part you change. A ready-to-install copy of all three is in 
 | Visual Studio 2022 or newer | with the C++ desktop workload |
 | CMake 3.21+ | the copy bundled with Visual Studio is fine |
 | vcpkg | the copy bundled with Visual Studio is fine; set `VCPKG_ROOT` |
-| **CommonLibSSE-NG** | a source checkout with VR support (for example CommonLibVR 4.14) — not vendored here |
+| **CommonLibSSE-NG** | a source checkout with VR support — [CommonLibVR](https://github.com/alandtse/CommonLibVR) 8.3.0 or newer (the releases use 8.3.0); not vendored here |
+
+> **Use a CommonLib that knows Skyrim AE 1.7.** Older checkouts (CommonLibVR 4.14, for one) take any game
+> version whose minor number is not 6 for the old Special Edition, so on AE 1.7.x the DLL looks for the SE
+> Address Library file and the game stops with "failed to open address library file" (`REL/ID.h`).
+> Check `include/REL/Module.h`: the runtime test must read `_version[1] >= 6`, not `case 6`.
 
 ### Configure and build
 
@@ -92,8 +97,8 @@ Edit it with xEdit or the Creation Kit, or round-trip it through
 Start the game and read `SKSE/Standpoint.log`:
 
 ```
-Standpoint v1.0.0 loaded (...)
-driver v1.0.0 ready (engine=TRUE sa=...)
+Standpoint v1.1.0 loaded (...)
+driver v1.1.0 ready (engine=TRUE sa=...)
 ```
 
 `engine=TRUE` proves the four packages resolved. Then run the console test: click an NPC, `stpt`,

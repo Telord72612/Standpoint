@@ -1,4 +1,4 @@
-# Standpoint — Integration Guide (v1.0.0)
+# Standpoint — Integration Guide (v1.1.0)
 
 **"Walk this NPC to a precise stand-slot at a target and have them arrive facing the
 right way, then hold there."**

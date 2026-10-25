@@ -113,7 +113,7 @@ std::vector<float> SolveSlot(RE::StaticFunctionTag*, RE::TESObjectREFR* a_target
 
 std::string GetPluginVersion(RE::StaticFunctionTag*)
 {
-    return "1.0.0";  // "" when the DLL is absent = the WaterFinder soft-dep contract
+    return "1.1.0";  // "" when the DLL is absent = the WaterFinder soft-dep contract
 }
 
 bool IsPlayerGrabbing(RE::StaticFunctionTag*, RE::Actor* a_actor)
@@ -156,6 +156,7 @@ std::vector<float> ScanThreats(RE::StaticFunctionTag*, RE::Actor* a_walker,
 // Tier 3 Phase A part 2 — read-only reconnaissance on a live travelling actor.
 void ProbeAvoidance(RE::StaticFunctionTag*, RE::Actor* a_actor)
 {
+    if (!REL::Module::IsVR()) return;   // v1.1.0: the probe reads SkyrimVR.exe's own layout - VR only
     standpoint_avoid::ProbeActorAgents(a_actor);
 }
 

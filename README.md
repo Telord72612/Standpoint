@@ -6,7 +6,8 @@ Standpoint is an SKSE framework for Skyrim (VR, SE and AE from one DLL) for mod 
 *"go stand 1 metre to the right of that chair, facing it"*; Standpoint does the walking with the game's own
 travel packages (no teleporting, no sliding) and reports back what really happened.
 
-**Version 1.0** — the first public release.
+**Version 1.1** — fixes the Address Library error on Skyrim AE 1.7. One DLL for Skyrim VR, SE (1.5.97) and
+AE (1.6 and 1.7).
 
 > **Free for everyone.** This project is released into the public domain. Use it, copy it, change it, ship it
 > inside your own mod, sell it — anything you like. **No permission and no credit needed.** (Details at the

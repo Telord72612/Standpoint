@@ -35,7 +35,7 @@ namespace standpoint_avoid {
 }
 
 SKSEPluginInfo(
-    .Version              = { 1, 0, 0 },
+    .Version              = { 1, 1, 0 },
     .Name                 = "Standpoint",
     .Author               = "mad72",
     .StructCompatibility  = SKSE::StructCompatibility::Independent,
@@ -174,7 +174,9 @@ void OnSKSEMessage(SKSE::MessagingInterface::Message* msg)
     if (msg->type == SKSE::MessagingInterface::kDataLoaded) {
         RunSettingsProbe();
         standpoint_interrupts::AcquireHiggs();
-        standpoint_avoid::ProbeSingletons();  // Tier 3 Phase A1: module-only, no game objects
+        if (REL::Module::IsVR()) {
+            standpoint_avoid::ProbeSingletons();  // Tier 3 Phase A1: module-only, no game objects (v1.1.0: VR only)
+        }
         standpoint_test::RegisterConsole();   // v0.8.0: the `stpt` console test of the move API (one command since v0.8.2)
     } else if (msg->type == SKSE::MessagingInterface::kPreLoadGame || msg->type == SKSE::MessagingInterface::kNewGame) {
         // v0.8.0: the driver rebuilds its sessions on every load, so a request still open can never be answered by it
@@ -260,7 +262,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse)
     // short" far from the point. No change in the DLL's logic.
     // v1.0.0 (2026-10-10): THE FIRST PUBLIC RELEASE ("V1"). The code of 0.9.9 with the version number changed -
     // nothing else. Published at https://github.com/Telord72612/Standpoint, public domain.
-    logger::info("Standpoint v1.0.0 loaded (the move API: C++ interface revision 2; danger=DROP - loaded actors of the walker's "
+    // v1.1.0 (2026-10-24; built as 1.0.1): built on CommonLibVR 8.3.0 - Skyrim AE 1.7.x is recognised as AE (it stopped with "failed to
+    // open address library file" before: 4.14.0 took any minor version but 6 for SE); the old avoid-node probe runs on VR
+    // only. No change in what Standpoint does.
+    logger::info("Standpoint v1.1.0 loaded (the move API: C++ interface revision 2; danger=DROP - loaded actors of the walker's "
                  "own cell only; an actor's blocked side is skipped; a walker stuck short turns to her face target)");
 
     if (auto* msg = SKSE::GetMessagingInterface()) {

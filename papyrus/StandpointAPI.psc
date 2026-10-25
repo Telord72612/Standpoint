@@ -1,6 +1,6 @@
 Scriptname StandpointAPI Hidden
 { ============================================================================
-  Standpoint - public Papyrus API (v1.0.0). SHIPS with the mod.
+  Standpoint - public Papyrus API (v1.1.0). SHIPS with the mod.
 
   "Walk this NPC to a precise stand-slot at a target and have them arrive
   FACING the right way, then hold there." Slots come from real furniture
