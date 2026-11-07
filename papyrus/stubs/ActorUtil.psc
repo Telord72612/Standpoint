@@ -5,3 +5,5 @@ Scriptname ActorUtil Hidden
 
 Function AddPackageOverride(Actor targetActor, Package targetPackage, int priority = 30, int flags = 0) global native
 bool Function RemovePackageOverride(Actor targetActor, Package targetPackage) global native
+; Standpoint 1.6.0 (BUG 2's orphan cure in Setup) - verbatim from the real PapyrusUtil VR source (ActorUtil.psc:25)
+int Function RemoveAllPackageOverride(Package targetPackage) global native

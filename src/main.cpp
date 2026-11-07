@@ -1,5 +1,9 @@
 #include "PCH.h"
 #include "MoveApi.h"
+#include "PathPlanner.h"
+#include "DirectWalk.h"
+#include "WalkApi.h"
+#include "SteerSession.h"
 
 // ---------------------------------------------------------------------------
 // Standpoint v0.1.0 — milestone S0: the engine-settings probe.
@@ -33,9 +37,12 @@ namespace standpoint_interrupts {
 namespace standpoint_avoid {
     void ProbeSingletons();
 }
+namespace standpoint_test {
+    void OnPostLoad();   // 1.6.0 FIX ROUND (review R1 NIT 17): an stpm heading marker that came back with a save is deleted
+}
 
 SKSEPluginInfo(
-    .Version              = { 1, 1, 0 },
+    .Version              = { 2, 0, 0 },
     .Name                 = "Standpoint",
     .Author               = "mad72",
     .StructCompatibility  = SKSE::StructCompatibility::Independent,
@@ -178,11 +185,20 @@ void OnSKSEMessage(SKSE::MessagingInterface::Message* msg)
             standpoint_avoid::ProbeSingletons();  // Tier 3 Phase A1: module-only, no game objects (v1.1.0: VR only)
         }
         standpoint_test::RegisterConsole();   // v0.8.0: the `stpt` console test of the move API (one command since v0.8.2)
+        standpoint_walk::OnDataLoaded();      // v1.5.0: Water Finder's C++ interface, asked once (the wade-spot walk)
+    } else if (msg->type == SKSE::MessagingInterface::kSaveGame) {
+        // v1.4.0: every walker the walk driver holds is handed back before the save is written (re-taken next frame)
+        standpoint_walk::OnSaveGame();
     } else if (msg->type == SKSE::MessagingInterface::kPreLoadGame || msg->type == SKSE::MessagingInterface::kNewGame) {
         // v0.8.0: the driver rebuilds its sessions on every load, so a request still open can never be answered by it
-        standpoint_test::OnGameLoad();
-        standpoint_pair::ClearAll();          // v0.9.3: the world is being rebuilt - the whole pair-rule pool off at once
+        standpoint_test::OnGameLoad();        // (v1.4.0: also forgets the stpt walk program's handle; 1.6.0: and the stpm run)
+        standpoint_pair::ClearAll();         // v0.9.3: the world is being rebuilt - the whole pair-rule pool off at once
         standpoint_move::FailAll('X', StandpointAPI::kDetailGameLoaded);
+        standpoint_steer::OnGameLoad();       // 1.6.0: every steered session is forgotten (the driver's Setup makes its slots new)
+        standpoint_walk::OnGameLoad();        // v1.4.0: every walk answers X 12 (C++), the driver forgets all, touches nothing
+        standpoint_path::ClearAll();          // v1.3.0: every route plan of the old game is dropped
+    } else if (msg->type == SKSE::MessagingInterface::kPostLoadGame) {
+        standpoint_test::OnPostLoad();        // 1.6.0 FIX ROUND: a test marker a save brought back is deleted (stpm only)
     }
 }
 
@@ -265,8 +281,59 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse)
     // v1.1.0 (2026-10-24; built as 1.0.1): built on CommonLibVR 8.3.0 - Skyrim AE 1.7.x is recognised as AE (it stopped with "failed to
     // open address library file" before: 4.14.0 took any minor version but 6 for SE); the old avoid-node probe runs on VR
     // only. No change in what Standpoint does.
-    logger::info("Standpoint v1.1.0 loaded (the move API: C++ interface revision 2; danger=DROP - loaded actors of the walker's "
-                 "own cell only; an actor's blocked side is skipped; a walker stuck short turns to her face target)");
+    // v1.2.0 (2026-10-30, the BiSR bridge's letter - report 11): a ring point is never on another floor level (F1); a
+    // re-sent walker who stops short is answered in seconds, not after 90 s (F2); RequestMove = the move request line
+    // from Papyrus, close mode included (F3); the arrival waits end as soon as she stands still (F4); a paused game is
+    // not counted; a walker moving past the player is not "blocked" by him.
+    // v1.3.0 (2026-10-31, the user's waypoint plan): a leg that does not start is kicked (2 s evaluate, 4 s sent again)
+    // before it can count as failed; a leg blocked with 60 u or more to go gets a PLANNED WAY ROUND (PathPlanner.cpp:
+    // navmesh floor + Havok rays, sliced per frame), walked point by point as DETOUR legs.
+    // v1.4.0 (2026-11-02, the user: "we can use HIGGS/PLANCK way to travel, exactly like if someone was pulling a chain on
+    // that NPC's hips"): THE WALK OFF THE NAVMESH - StandpointAPI.WalkTo / IStandpoint3::RequestWalk. The route planner's
+    // Ex mode (PathPlanner.cpp: navmesh + bare floor + shallow water) plans the route; the chain-pull driver
+    // (DirectWalk.cpp: planner direct control from the VR motion-check hook) walks her along all of it with her own legs;
+    // WalkApi.cpp gives ONE answer. VR only (SE / AE answer B 19). A save hands driven walkers back for the save.
+    // v1.4.1 (2026-11-03, after the user's first VR run of 1.4.0): DLL only. A walk that STARTS in water deeper than the cap
+    // (pulled into a bath) is planned out of it instead of refused - her start region up to her own depth + 8 u, never at
+    // the swim level (PathPlanner.cpp); a walker who can strafe turns to her final facing over the last 48 u and gets ONE
+    // short re-approach when still more than 16 u off (DirectWalk.cpp: the turn in place at the point had drifted her
+    // 10 u); the console test gets a second command, the FOLLOW-FRONT program (she keeps 3 m in front of the player until
+    // stpt - no sneaking; TestCmd.cpp + WalkApi.cpp). The API and the scripts are unchanged.
+    // v1.5.0 (2026-11-05, the user: "All of 1.5.0 now"; report "1.5.0 Plan" D): THE MIX - the planner follows the navmesh
+    // corridor where there is one and checks every leg with rays, several floors per map square, the body rules, standing
+    // actors kept clear of, unlocked ordinary doors opened by the walker (PathPlanner.cpp); a new route after every stall or
+    // push in a new place (WalkApi.cpp); THE WALK INTO WATER - StandpointAPI.WalkToWater / IStandpoint4::RequestWalkToWater:
+    // Water Finder's seed, the planner's wade-spot search, she wades in and faces the water; SE / AE: the walk driver's site
+    // is found at run time by a read-only self-test, switched on by Standpoint.ini [DirectWalk] SEAE = 1 (DirectWalk.cpp).
+    // v1.5.1 (2026-11-05, after the user's first VR run of 1.5.0: "A bit slow, which we can fix by adding some speed according to
+    // distance" / "StandPoint is a travel mod for up to 200m"; report "1.5.1 Plan" D): a standing NPC's idle is broken
+    // (IdleForceDefaultState) before she is driven; SPEED BY DISTANCE - within 20 m she walks, beyond it the direct walk jogs and
+    // walks the last 10 m; THE FAR PHASE beyond 30 m (VR): Standpoint's own travel session runs her (the slot package at RUN)
+    // until 30 m, then the direct walk takes her over moving; up to 200 m (O 1 beyond); B 22 names the holder (DirectWalk.cpp,
+    // WalkApi.cpp, Standpoint_PlayerAlias.psc); the planner climbs her real step, trusts the navmesh's slope on terrain and keeps
+    // classified cells for 60 s (PathPlanner.cpp).
+    // v1.6.0 (2026-11-06, after the user's first VR run of 1.5.1 - report "1.6.0 Plan" D, the spec): RELATIVE destinations "like the
+    // water walk" - THE STEERED SESSION (SteerSession.cpp + RelativeSolve.cpp + the driver): GoTo / RequestMove (and GoToPoint, the
+    // same switch) keep their whole Papyrus contract, but the DLL solves the spot by physics, plans ONE route and walks her with
+    // Standpoint's own steering; the driver pins her after the arrival (Standpoint.ini [Session] Steered: VR 1, SE / AE 0 - the
+    // rollback switch). BUG 1: the session markers are made at the walker and placed by ONE cross-cell MoveTo (they stayed in the
+    // cell they were made in); BUG 2: the markers are kept across loads, the slot packages' orphan overrides removed at every load,
+    // the old litter COUNTED (MarkerSweep.cpp; deleted only with [Cleanup] SweepMarkers = 1). OUR OWN LONG PATH (NavGraph.cpp: the
+    // loaded navmesh's triangles, verified chunks while she walks - the engine far phase is gone; O 26 outside the loaded area),
+    // the speed bands (run beyond 15 m, jog to 3 m, walk the last 3 m), faster planning, stairs both ways, deeper wading (shin -> knee
+    // -> thigh in one route) - PathPlanner.cpp, WalkApi.cpp, DirectWalk.cpp. The `stpm` test command (TestCmd.cpp).
+    // v1.6.1 (2026-11-06, after the first 1.6.0 VR run - report "1.6.0 Plan" R3 / R4): the fix round - a GoTo on furniture falls back
+    // to its box sides, a POINT off the navmesh with no route answers O 1 (no engine leg), an engine leg ends when it is blocked, close
+    // arrivals land on the spot, stpm's event names and open-floor spots (SteerSession.cpp, RelativeSolve.cpp, TestCmd.cpp, the
+    // driver); the planner's and the walk's own fixes (PathPlanner.cpp, NavGraph.cpp, WalkApi.cpp, DirectWalk.cpp).
+    // v2.0.0 (2026-11-06, the user: Standpoint "V2.0" is complete): a version-only release of 1.6.1 - no behaviour change.
+    logger::info("Standpoint v2.0.0 loaded (C++ interface revision 4: the walk into water - shin, knee, thigh in one route; revision 3: "
+                 "the walk off the navmesh - our own path over the loaded navmesh, run / jog / walk by the route left, O 26 outside the "
+                 "loaded area; the move API: revision 2 - VR: the STEERED SESSIONS (the spot solved by physics, one route, our own "
+                 "steering, pinned at the arrival); danger=DROP - loaded actors of the walker's own cell only)");
+    standpoint_direct::Install();             // v1.4.0: the walk driver's hooks (v1.5.0: the self-test on every runtime; SE / AE
+                                              // install only with Standpoint.ini [DirectWalk] SEAE = 1 and a READY self-test)
+    standpoint_steer::Init();                 // 1.6.0: Standpoint.ini [Session] Steered (VR 1, SE / AE 0), read once, logged
 
     if (auto* msg = SKSE::GetMessagingInterface()) {
         msg->RegisterListener(OnSKSEMessage);

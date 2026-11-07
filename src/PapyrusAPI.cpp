@@ -2,6 +2,14 @@
 #include "SlotSolver.h"
 #include "Threats.h"
 #include "MoveApi.h"
+#include "PathPlanner.h"
+#include "WalkApi.h"
+#include "SteerSession.h"
+#include "MarkerSweep.h"
+
+namespace standpoint_test {
+    bool RegisterNatives(RE::BSScript::IVirtualMachine* a_vm);   // 1.6.0 TestCmd.cpp: TestEvent (the stpm test's ear)
+}
 
 namespace standpoint_interrupts {
     void AcquireHiggs();
@@ -113,7 +121,7 @@ std::vector<float> SolveSlot(RE::StaticFunctionTag*, RE::TESObjectREFR* a_target
 
 std::string GetPluginVersion(RE::StaticFunctionTag*)
 {
-    return "1.1.0";  // "" when the DLL is absent = the WaterFinder soft-dep contract
+    return "2.0.0";  // "" when the DLL is absent = the WaterFinder soft-dep contract
 }
 
 bool IsPlayerGrabbing(RE::StaticFunctionTag*, RE::Actor* a_actor)
@@ -196,6 +204,11 @@ bool Register(RE::BSScript::IVirtualMachine* a_vm)
     a_vm->RegisterFunction("ProbeAvoidance",           "Standpoint", ProbeAvoidance);
     logger::info("Papyrus natives registered (class Standpoint, 13 functions)");
     standpoint_move::RegisterNatives(a_vm);   // v0.8.0: the move API's mailbox natives
+    standpoint_path::RegisterNatives(a_vm);   // v1.3.0: the route planner (PathStart / PathResult / PathCancel)
+    standpoint_walk::RegisterNatives(a_vm);   // v1.4.0: the walk off the navmesh (WalkStart / WalkStop / WalkOutcome / ...)
+    standpoint_steer::RegisterNatives(a_vm);  // 1.6.0: the steered session (SteerSupported / SteerCheck / SteerStart / SteerState / ...)
+    standpoint_markers::RegisterNatives(a_vm);// 1.6.0: BUG 2, the marker census (MarkerSweep)
+    standpoint_test::RegisterNatives(a_vm);   // 1.6.0: the stpm test's ear (TestEvent)
     return true;
 }
 

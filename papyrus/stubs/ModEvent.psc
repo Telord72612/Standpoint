@@ -9,3 +9,6 @@ Function Release(int handle) global native
 Function PushBool(int handle, bool value) global native
 Function PushFloat(int handle, float value) global native
 Function PushForm(int handle, Form value) global native
+; v1.2.0 (the Standpoint_MoveResult event): verbatim from SKSE's ModEvent.psc :48 / :50
+Function PushInt(int handle, int value) global native
+Function PushString(int handle, string value) global native

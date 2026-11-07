@@ -1,7 +1,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  StandpointAPI.h — the Standpoint consumer contract for SKSE plugins.
 //
-//  Two things a plugin can ask Standpoint for:
+//  Four things a plugin can ask Standpoint for:
+//
+//    REVISION 4 (IStandpoint4, Standpoint 1.5.0+) — THE WALK INTO WATER: "walk
+//      this NPC into the nearest water she can really reach and wade in."
+//      Standpoint asks Water Finder (1.6.0+) itself. Read the REVISION 4 block.
+//
+//    REVISION 3 (IStandpoint3, Standpoint 1.4.0+, SKYRIM VR) — THE WALK OFF THE
+//      NAVMESH: "walk this NPC to that point - over rocks, onto a platform, into
+//      shallow water - with her own legs, and tell me how it ended." One 10-slot
+//      WalkRequest in, one 10-slot WalkResult back. Read the REVISION 3 block.
+//      (1.5.1, no ABI change: up to 200 m, speed by distance - see that block.)
+//      (1.6.0, no ABI change: our own path all the way, run / jog / walk by the
+//      route left, O 26 outside the loaded area; and on VR the move request's
+//      sessions are walked the same way - see REVISION 2 and 3.)
 //
 //    REVISION 2 (IStandpoint2, Standpoint 0.8.0+) — THE MOVE REQUEST: "walk this
 //      NPC to that target, this close, on this side, looking this way, hold
@@ -25,6 +38,8 @@
 //          StandpointAPI::StandpointMessage::kGetInterface,
 //          &msg, sizeof(msg), "Standpoint");
 //      if (msg.GetApiFunction) {
+//          g_water = static_cast<StandpointAPI::IStandpoint4*>(msg.GetApiFunction(4));
+//          g_walk  = static_cast<StandpointAPI::IStandpoint3*>(msg.GetApiFunction(3));
 //          g_move  = static_cast<StandpointAPI::IStandpoint2*>(msg.GetApiFunction(2));
 //          g_solve = static_cast<StandpointAPI::IStandpoint1*>(msg.GetApiFunction(1));
 //      }
@@ -32,7 +47,9 @@
 //  Dispatch AFTER kDataLoaded. Null GetApiFunction = Standpoint is not installed.
 //  Null from GetApiFunction(2) = a Standpoint older than 0.8.0 (revision 1 still
 //  answers). IStandpoint2 extends IStandpoint1: a revision-2 pointer has the
-//  solver too.
+//  solver too. Null from GetApiFunction(3) = older than 1.4.0; IStandpoint3
+//  extends IStandpoint2. Null from GetApiFunction(4) = older than 1.5.0;
+//  IStandpoint4 extends IStandpoint3.
 //
 //  ── VERSIONING CONTRACT ─────────────────────────────────────────────────────
 //  * Vtable is APPEND-ONLY; no virtual destructor; slot 0 = GetBuildNumber forever.
@@ -177,6 +194,22 @@ namespace StandpointAPI {
     //    Hold the target still yourself (a `where = who` line for her, see above) before you send someone to her.
     //  * Up to 4 NPCs at a time. A new request for an NPC who has one replaces it
     //    (the old one answers 'X').
+    //  * 1.6.0 (no ABI change) - THE STEERED SESSION, Skyrim VR with Data/SKSE/Plugins/Standpoint.ini [Session] Steered = 1
+    //    (the default on VR; 0 = the engine's walk as before - the default on SE / AE): the same line, the same answers, but
+    //    Standpoint finds the spot itself with physics tests (her floor, the room for her body, furniture and walls, standing
+    //    NPCs, water up to her thighs - the asked hour first, then the solver's own order), plans ONE route and walks her there
+    //    with its own steering (as RequestWalk does): she comes round the target at about her body's width and the last
+    //    stretch straight in on the asked side; from body contact she side-steps round the target facing it. At the arrival
+    //    she is held where she stopped; the pose and the hold follow as before. 'C' 0 = within 8 u of the spot (as before).
+    //    What you can see: the answer comes sooner after she stops; a target that moves 32 u (an NPC that turns 30 deg, for
+    //    an hour-relative spot) is followed - she re-aims while she walks; O 17 also means "no route" for a request that is
+    //    not close (a close request with no route answers O 17 at once; any other request then walks ONE engine leg to the
+    //    spot, as 1.5.1 did); IsDirectWalking is true during the walk. A target in another interior / worldspace keeps the
+    //    engine's walk (load doors).
+    //  * 2.0.0 (2026-11-06): 1.6.1 released as Standpoint 2.0 - a version number only, no ABI or behaviour change.
+    //  * 1.6.1 (no ABI change): that ONE engine leg ends when it gets stuck - the engine reports her movement blocked, or she
+    //    has not moved for 6 s, 80 u or more from the spot - with 'O' 17 at once (1.6.0 waited out the 90 s); a CLOSE request
+    //    ends on the asked distance (1.6.0 stopped about 5 u short of it on the way in).
     // ═════════════════════════════════════════════════════════════════════════
 
     // The request line. Slots 8-10 are open: send 0.
@@ -233,6 +266,21 @@ namespace StandpointAPI {
         kDetailStrayed      = 15,  // O  she stopped moving far from where she was sent (100 u or more) - not an arrival; released
         kDetailGlided       = 16,  // C  0.9.5-0.9.7 ONLY: on the point, the last stretch by a glide. Not produced since 0.9.8 (nothing slides her)
         kDetailNoWay        = 17,  // O  (0.9.9, close request to an NPC) she could not get to the point: the way is blocked and no other way worked; released
+        // 1.4.0 - produced by walks (IStandpoint3::RequestWalk / Papyrus WalkTo) only:
+        kDetailBlocked      = 18,  // O  blocked: no progress, and one new route from where she stood did not get her through
+                                   //    (1.5.0: a new route after every stall in a new place; O 18 = none got her through,
+                                   //    or a second stall at a spot an earlier new route started from)
+        kDetailNotSupported = 19,  // B  not on this runtime (SE / AE), or the walk driver is not installed
+        kDetailDepthReached = 20,  // C  the asked submerged level (stopSubmerged) was reached: she stopped there
+        kDetailWouldSwim    = 21,  // O  she would swim (submerged 0.70 or more, or the engine says she swims): let go
+        kDetailOtherDriver  = 22,  // B  another plugin drives her right now (PLANCK's grab, PPB's push walk), or VR Chain chained her
+        // 1.5.0 - produced by water walks (IStandpoint4::RequestWalkToWater / Papyrus WalkToWater) only:
+        kDetailNoWater       = 23, // O  Water Finder found no water within maxMetres of her
+        kDetailNoWadeSpot    = 24, // O  water was found, but no wading spot she can walk to (every seed Water Finder gave was tried)
+        kDetailNoWaterFinder = 25, // B  Water Finder is absent, or older than 1.6.0 (no C++ revision 2)
+        // 1.6.0 - produced by walks (RequestWalk / RequestWalkToWater / Papyrus WalkTo, WalkToWater) only:
+        kDetailOutsideLoaded = 26, // O  the point is outside the loaded area (the game has no ground loaded there): answered at
+                                   //    once - Standpoint walks only where the ground is loaded; GoToPoint can travel there
     };
 
     using MoveCallback = void (*)(std::uint32_t handle, const MoveResult& result, void* user);
@@ -241,6 +289,168 @@ namespace StandpointAPI {
         // Hand in a request line. Returns a handle (> 0), or 0 when a_callback is null. The answer ALWAYS comes
         // through the callback (refusals too), on the main thread, once. `user` is handed back untouched.
         virtual std::uint32_t RequestMove(const MoveRequest& request, MoveCallback callback, void* user) = 0;
+    };
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  REVISION 3 (Standpoint 1.4.0, SKYRIM VR) — THE WALK OFF THE NAVMESH.
+    //  Ask with GetApiFunction(3).
+    //
+    //      StandpointAPI::WalkRequest q{};
+    //      q.who = npc->GetFormID();  q.x = wx;  q.y = wy;  q.z = wz;
+    //      q.facingDegrees = bearing;  q.holdSeconds = -1;
+    //      g_walk->RequestWalk(q, &OnWalkDone, nullptr);
+    //
+    //      void OnWalkDone(std::uint32_t handle, const StandpointAPI::WalkResult& r, void*)
+    //      { if (r.outcome == 'C') { /* she is there: r.distLeft, r.submerged */ } }
+    //
+    //  * Standpoint plans a route (the navmesh, bare ground, shallow water up to
+    //    depthFrac x her height; a point that is not a place to stand moves toward
+    //    her) and walks her along it with her OWN legs: it steers her movement
+    //    controller every frame (planner direct control - the mechanism PLANCK's
+    //    grab-drag uses); the engine plays her walk. Nothing slides or teleports her.
+    //  * SKYRIM VR ONLY in 1.4.0: on SE / AE every request answers 'B', detail 19.
+    //    1.5.0: on SE / AE too once Standpoint's start-up self-test says READY and
+    //    Data/SKSE/Plugins/Standpoint.ini has [DirectWalk] SEAE = 1 (default 0 =
+    //    B 19 as before). Since 1.5.0 the route also follows the navmesh where there
+    //    is one (every leg still checked by rays), she opens unlocked ordinary doors
+    //    on the way, keeps clear of NPCs standing still, and gets a new route after
+    //    every stall or push in a new place.
+    //  * MAIN THREAD ONLY for RequestWalk. The callback arrives on the main thread,
+    //    in a later frame, exactly ONCE per request: when she has stopped on the
+    //    point and turned to the asked facing, or when the walk is stopped.
+    //    Refusals come through the callback too. The hold then runs by itself.
+    //  * If she has a Standpoint move session (GoTo / RequestMove), it is released
+    //    first (VR only - on SE / AE nothing is touched: B 19). A new RequestWalk for
+    //    her replaces her older walk (X 6) and keeps her held until it takes her.
+    //    To end a walk or the stand after it: a RequestMove release line
+    //    (where = 0, 'X' 3), or a new RequestWalk / RequestMove for her ('X' 6).
+    //  * Answers (outcome, detail): C 0 arrived (within 32 u) · C 9 she ended more than
+    //    32 u away (a partial route, a point moved toward her, or something in the way
+    //    at the end - read distLeft) · C 20 the stop depth was
+    //    reached · O 1 no route · O 2 not there in 90 s · O 10 not a loaded NPC ·
+    //    O 15 pushed off the route (1.5.0: and no new route from there) · O 18
+    //    blocked (1.4.x: after one new route; 1.5.0: a new route after every stall in
+    //    a new place - O 18 when none helps, or twice from one spot) · O 21 she
+    //    would swim · P 8 grabbed (HIGGS) · X 3 released · X 6 replaced · X 12 a
+    //    save was loaded · X 14 another end (combat, ragdoll, death, ...: the log
+    //    names it) · B 11 busy · B 19 not on this runtime · B 22 another plugin
+    //    drives her.
+    //  * Up to about 23 m (1600 u). Not yet run in VR at the time of 1.4.0's release.
+    //  * 1.5.1 (no ABI change) - UP TO 200 m (14,000 u; further = O 1 "too far
+    //    (beyond 200 m)"), SPEED BY DISTANCE: she starts within 20 m of the point ->
+    //    she walks all the way; 20-30 m -> she jogs, the last 10 m walked; beyond
+    //    30 m (VR) -> Standpoint's own travel session RUNS her first (the engine's
+    //    travel), and at 30 m the walk above takes her over without stopping (jog,
+    //    the last 10 m walked). A walk beyond 30 m has 90 s + 1 s per 150 u of her
+    //    distance (O 2 after it). A standing NPC's idle is broken before she is
+    //    driven. B 22's log line names what holds her (PLANCK's grab, VR Chain, PPB's
+    //    push walk). IsDirectWalking is false during the far phase (the engine's
+    //    travel runs her then, not planner direct control). Same for RequestWalkToWater.
+    //  * 1.6.0 (no ABI change) - OUR OWN PATH ALL THE WAY: the engine's far phase is GONE. Beyond the planner's
+    //    reach the route follows the loaded navmesh's own triangles (a skeleton) and is checked ahead of her in
+    //    pieces while she walks - she never stops for it. SPEED by the route LEFT: she runs while more than 15 m
+    //    (1,050 u) are left, jogs down to 3 m (210 u) and walks the last 3 m; a pace that would last under a
+    //    second is skipped; she slows for sharp turns, doors, stairs and water edges. Stairs both ways where the
+    //    navmesh confirms them (she never stops ON a stair). A point outside the loaded area answers O 26
+    //    (kDetailOutsideLoaded) at once; the loaded area ending mid-walk answers C 9 at the last checked point.
+    //    The limit beyond 2,100 u: 90 s + 1 s per 150 u of her distance (O 2). IsDirectWalking is true all the way.
+    //    The steered sessions (REVISION 2 above) are walked by this same walk.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // The walk request line. Slots 9-10 are open: send 0.
+    struct WalkRequest {
+        std::uint32_t who;           //  1  the NPC who walks (reference FormID; never the player)
+        float         x;             //  2  the point, game units (in water: on the bed)
+        float         y;             //  3
+        float         z;             //  4
+        float         facingDegrees; //  5  her facing at the end: compass, 0 = north, clockwise; < 0 = keep her last travel direction
+        float         holdSeconds;   //  6  -1 = she stands there (held, speed 0) until released / replaced; 0 = let go at arrival; N seconds
+        float         depthFrac;     //  7  the deepest water her route may use, x her height (0.05-0.65); 0 = 0.45
+        float         stopSubmerged; //  8  > 0: she arrives as soon as her submerged level (0..1) reaches it; 0 = off
+        float         open9;         //  9  open - send 0
+        float         open10;        // 10  open - send 0
+    };
+    static_assert(sizeof(WalkRequest) == 40, "WalkRequest layout is part of the ABI");
+
+    // The walk result line. Slots 4-8 are MEASURED at the moment of the report.
+    struct WalkResult {
+        std::uint32_t who;           //  1  as asked
+        char          outcome;       //  2  'C' 'O' 'P' 'X' 'B' (see above)
+        char          pad[3];        //     zero
+        float         detail;        //  3  the reason code (MoveDetail)
+        float         distLeft;      //  4  flat distance from her to the asked point, game units
+        float         submerged;     //  5  her submerged level, 0 (dry) .. 1
+        float         x;             //  6  where she is
+        float         y;             //  7
+        float         z;             //  8
+        float         open9;         //  9  open - 0
+        float         open10;        // 10  open - 0
+    };
+    static_assert(sizeof(WalkResult) == 40, "WalkResult layout is part of the ABI");
+
+    using WalkCallback = void (*)(std::uint32_t handle, const WalkResult& result, void* user);
+
+    struct IStandpoint3 : IStandpoint2 {
+        // Hand in a walk line. Returns a handle (> 0), or 0 when a_callback is null. The answer ALWAYS comes through the
+        // callback (refusals too), on the main thread, once. `user` is handed back untouched.
+        virtual std::uint32_t RequestWalk(const WalkRequest& request, WalkCallback callback, void* user) = 0;
+        // True while Standpoint drives this actor's movement (walking or standing). Any thread.
+        virtual bool IsDirectWalking(std::uint32_t formId) = 0;
+    };
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  REVISION 4 (Standpoint 1.5.0) — THE WALK INTO WATER. Ask with GetApiFunction(4).
+    //
+    //      StandpointAPI::WaterWalkRequest q{};
+    //      q.who = npc->GetFormID();  q.maxMetres = 20;  q.holdSeconds = -1;
+    //      q.facingDegrees = -1;                       // she ends facing the water
+    //      g_water->RequestWalkToWater(q, &OnWalkDone, nullptr);
+    //
+    //  * Standpoint asks Water Finder (1.6.0+, a soft link) for the nearest water
+    //    within maxMetres, then plans from HER toward it and stops the plan at the
+    //    first wading spot she can really reach: water between depthMinFrac and
+    //    depthMaxFrac x her height, with water round it (5 of its 8 neighbours), a
+    //    place she can stand. Deeper water is never crossed. None reachable near
+    //    that water: the next water Water Finder 1.6.2 offers, inside the same 90 s.
+    //    1.6.0 - DEEPER, BY PRIORITY, IN ONE ROUTE: that first spot is the ENTRY
+    //    (shin-deep: depthMinFrac, 0.15); within two body lengths of it the nearest
+    //    THIGH-deep spot (0.38 x her height or more) ends the search, else the
+    //    nearest KNEE-deep one (0.28), and within two body lengths of that the
+    //    nearest thigh-deep one; depthMaxFrac (default 0.45 = the thigh) is the
+    //    deepest on every step. Start -> entry -> knee -> thigh is ONE route - she
+    //    never stops between them. A cap below the knee keeps the 1.5.x behaviour.
+    //    The search first floods the floor toward the nearest reachable shin-deep
+    //    water (a seed below a ledge no longer answers O 24).
+    //    Then she walks there with her own legs (as RequestWalk) and turns to face
+    //    out over the water (facingDegrees < 0) or to the asked facing.
+    //  * The answer is a WalkResult through the same WalkCallback, once, main
+    //    thread, a later frame; the handles share RequestWalk's numbers. distLeft is
+    //    measured to the wading spot it chose (C 0 = within 32 u of it).
+    //  * Answers: as RequestWalk (C 0 / C 9, O 1 / 2 / 10 / 15 / 18 / 21, P 8, X 3 /
+    //    6 / 12 / 14, B 11 / 19 / 22), plus O 23 no water within maxMetres, O 24 water
+    //    but no wading spot she can reach, B 25 Water Finder absent or older than
+    //    1.6.0. Ending a walk / a stand: as RequestWalk.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // The water walk request line. Slots 7-10 are open: send 0.
+    struct WaterWalkRequest {
+        std::uint32_t who;           //  1  the NPC who walks (reference FormID; never the player)
+        float         maxMetres;     //  2  how far Water Finder looks for water, metres; <= 0 = 20 (the walk itself reaches ~23 m; 1.5.1: 200 m)
+        float         depthMinFrac;  //  3  the shallowest a wading spot may be, x her height; <= 0 = 0.15
+        float         depthMaxFrac;  //  4  the deepest water her route and spot may use, x her height (0.05-0.65); <= 0 = 0.45
+        float         holdSeconds;   //  5  -1 = she stands there until released / replaced; 0 = let go at arrival; N seconds
+        float         facingDegrees; //  6  < 0 = she faces the water; else a compass facing (0 = north, clockwise)
+        float         open7;         //  7  open - send 0
+        float         open8;         //  8  open - send 0
+        float         open9;         //  9  open - send 0
+        float         open10;        // 10  open - send 0
+    };
+    static_assert(sizeof(WaterWalkRequest) == 40, "WaterWalkRequest layout is part of the ABI");
+
+    struct IStandpoint4 : IStandpoint3 {
+        // Hand in a water walk line. Returns a handle (> 0), or 0 when a_callback is null. The answer ALWAYS comes through
+        // the callback (refusals too), on the main thread, once. `user` is handed back untouched. MAIN THREAD.
+        virtual std::uint32_t RequestWalkToWater(const WaterWalkRequest& request, WalkCallback callback, void* user) = 0;
     };
 
     struct StandpointMessage {

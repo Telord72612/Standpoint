@@ -315,6 +315,18 @@ SlotResult Solve(RE::TESObjectREFR* a_target, Relation a_rel, RE::Actor* a_agent
             if (!SnapToNavmesh(a_target, snapped)) { logger::info("  rej m{}: no navmesh at ({:.0f},{:.0f})", c.markerIndex, preSnap.x, preSnap.y); continue; }
             const float moved = Dist2D(snapped, preSnap);
             if (moved > 96.f) { logger::info("  rej m{}: snap moved {:.0f} u", c.markerIndex, moved); continue; }
+            // v1.2.0 (F1, report 11 §3): for an ACTOR target the point must stand on her level - within one step (40 u)
+            // or a 30-deg slope over the flat distance. The snap's 160 u downward window could put it on the floor
+            // below a raised bath or platform. Furniture and objects keep their own rules (their markers).
+            if (targetIsActor) {
+                const float dz = snapped.z - tpos.z;
+                const float allowZ = (std::max)(40.f, 0.58f * Dist2D(snapped, tpos));
+                if (std::fabs(dz) > allowZ) {
+                    logger::info("  rej m{}: other level - {:.0f} u {} her feet (allowed {:.0f})", c.markerIndex,
+                                 std::fabs(dz), dz < 0.f ? "below" : "above", allowZ);
+                    continue;
+                }
+            }
             // sanity: the slot must still serve its anchor
             const float fromAnchor = Dist2D(snapped, c.anchor);
             if (fromAnchor > (std::max)(96.f, approach + 64.f)) { logger::info("  rej m{}: {:.0f} u from anchor", c.markerIndex, fromAnchor); continue; }

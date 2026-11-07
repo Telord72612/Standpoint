@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(Standpoint LANGUAGES CXX VERSION 1.1.0)
+project(Standpoint LANGUAGES CXX VERSION 2.0.0)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,6 +38,13 @@ add_library(Standpoint SHARED
     src/AvoidProbe.cpp    # v0.6 Tier 3 Phase A: avoid-node reconnaissance (read-only)
     src/MoveApi.cpp       # v0.8 the move API: IStandpoint2::RequestMove mailbox to the Papyrus driver
     src/TestCmd.cpp       # v0.8 the stpt console test of the move API
+    src/PathPlanner.cpp   # v1.3 the obstacle-aware route for a walk's last stretch (rays + navmesh, sliced per frame)
+    src/DirectWalk.cpp    # v1.4 the chain-pull walk driver (planner direct control from the motion-check hook; v1.5 SE/AE self-test, doors; v1.5.1 idle break, jog band)
+    src/WalkApi.cpp       # v1.4 the walk off the navmesh: request -> plan -> drive -> one answer; the stpt walk programs; v1.5 WalkToWater; v1.6 the rolling long path, the steered sessions' walk (the far phase removed)
+    src/NavGraph.cpp      # v1.6 our own long path: the skeleton over the loaded navmesh triangles (A* + funnel)
+    src/SteerSession.cpp  # v1.6 the steered session: the DLL half of GoTo / GoToPoint / RequestMove (solve, one route, the walk, the verdicts)
+    src/RelativeSolve.cpp # v1.6 the physics solve of a relative spot (the solver's candidates judged by the planner's probes)
+    src/MarkerSweep.cpp   # v1.6 BUG 2: the census (and, on the user's word, the sweep) of orphaned session markers; the Standpoint.ini reader
 )
 
 target_precompile_headers(Standpoint PRIVATE src/PCH.h)

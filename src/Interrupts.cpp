@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <format>
 #include <thread>
 
@@ -129,6 +130,38 @@ namespace {
         return R::Continue;
     }
 
+    // ── v1.2.0: THE PAIR RULE WITHOUT HIGGS (SE, AE, and VR without HIGGS) - the user, 2026-10-30: "build the
+    // HIGGS-free pair rule" ──
+    // HIGGS calls PairFilter from its own hook in the game's filter-word comparison (a VR-only address). Without HIGGS,
+    // Standpoint hooks the game collision filter's collidable-vs-collidable check itself: bhkCollisionFilter's
+    // hkpCollidableCollidableFilter part (VTABLE_bhkCollisionFilter[1], SE / AE / VR ids in CommonLib), virtual 1
+    // isCollisionEnabled(a, b). Havok asks it "whenever two collidables are considered for collision testing - when a
+    // new broadphase overlap is detected" (SDK hkpCollidableCollidableFilter.h) - the same moment HIGGS's hook answers
+    // for, so the known limit is the same: a pair already in contact stays in contact until the two separate.
+    // The test is PairFilter itself (lock-free, integers only); anything it does not claim goes to the original.
+    using IsCollisionEnabledFn = bool (*)(const RE::hkpCollidableCollidableFilter*, const RE::hkpCollidable&, const RE::hkpCollidable&);
+    IsCollisionEnabledFn g_origIsCollisionEnabled = nullptr;
+    bool                 g_ownFilterHook = false;
+
+    bool OwnIsCollisionEnabled(const RE::hkpCollidableCollidableFilter* a_this, const RE::hkpCollidable& a_a, const RE::hkpCollidable& a_b)
+    {
+        const std::uint32_t fa = a_a.broadPhaseHandle.collisionFilterInfo.filter;
+        const std::uint32_t fb = a_b.broadPhaseHandle.collisionFilterInfo.filter;
+        if (PairFilter(nullptr, fa, fb) == Higgs::IHiggsInterface001::CollisionFilterComparisonResult::Ignore) return false;
+        return g_origIsCollisionEnabled(a_this, a_a, a_b);
+    }
+
+    void InstallOwnPairFilter()
+    {
+        if (g_ownFilterHook || g_pairHooked) return;
+        REL::Relocation<std::uintptr_t> vt{ RE::VTABLE_bhkCollisionFilter[1] };
+        g_origIsCollisionEnabled = reinterpret_cast<IsCollisionEnabledFn>(vt.write_vfunc(1, OwnIsCollisionEnabled));
+        g_ownFilterHook = g_origIsCollisionEnabled != nullptr;
+        g_pairHooked = g_ownFilterHook;
+        logger::info("interrupts: no HIGGS - the pair rule uses Standpoint's own collision-filter hook ({}; idle until a pair is armed)",
+                     g_ownFilterHook ? "installed" : "FAILED");
+    }
+
     // The collision filter word of the actor's controller body (0 = none). The route is FollowerBumpGuard's.
     std::uint32_t ControllerFilter(RE::Actor* a_actor)
     {
@@ -231,25 +264,38 @@ namespace standpoint_interrupts {
 void AcquireHiggs()  // call at kDataLoaded; idempotent; VR-only by construction
 {
     if (g_higgs) return;
+    // v1.2.0 TEST SWITCH: an (empty) file Data/SKSE/Plugins/Standpoint_OwnPairFilter.test makes the pair rule use
+    // Standpoint's own collision-filter hook even with HIGGS present, so the SE / AE path can be tried in VR. HIGGS
+    // still serves the grab recognition; it is just not asked for the pair rule.
+    std::error_code testEc;
+    if (std::filesystem::exists("Data/SKSE/Plugins/Standpoint_OwnPairFilter.test", testEc)) {
+        logger::info("interrupts: TEST SWITCH Standpoint_OwnPairFilter.test found - the pair rule uses Standpoint's own hook");
+        InstallOwnPairFilter();
+    }
     if (!::GetModuleHandleA("higgs_vr.dll")) {
         logger::info("interrupts: HIGGS absent — grab recognition disabled (flat edition or no HIGGS)");
+        InstallOwnPairFilter();          // v1.2.0: close mode keeps its pair rule without HIGGS
         return;
     }
     auto* msging = SKSE::GetMessagingInterface();
-    if (!msging) return;
+    if (!msging) { InstallOwnPairFilter(); return; }
     HiggsMessage hm;
     msging->Dispatch(kHiggsGetInterface, static_cast<void*>(&hm), sizeof(HiggsMessage*), "HIGGS");
     if (!hm.GetApiFunction) {
         logger::warn("interrupts: HIGGS did not answer the interface handshake");
+        InstallOwnPairFilter();
         return;
     }
     g_higgs = static_cast<Higgs::IHiggsInterface001*>(hm.GetApiFunction(1));
+    if (!g_higgs) InstallOwnPairFilter();
     if (g_higgs) {
         g_higgs->AddGrabbedCallback(OnGrabbed);
         g_higgs->AddDroppedCallback(OnDropped);
-        g_higgs->AddCollisionFilterComparisonCallback(PairFilter);   // v0.9.0: answers Continue unless a pair is armed
-        g_pairHooked = true;
-        logger::info("interrupts: the pair rule's collision-filter callback is registered (idle until a pair is armed)");
+        if (!g_ownFilterHook) {      // v1.2.0: not when the test switch already gave the pair rule Standpoint's own hook
+            g_higgs->AddCollisionFilterComparisonCallback(PairFilter);   // v0.9.0: answers Continue unless a pair is armed
+            g_pairHooked = true;
+            logger::info("interrupts: the pair rule's collision-filter callback is registered (idle until a pair is armed)");
+        }
         logger::info("interrupts: HIGGS grab recognition ON (build {})", g_higgs->GetBuildNumber());
     }
 }

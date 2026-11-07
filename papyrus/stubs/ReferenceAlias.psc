@@ -19,3 +19,18 @@ EndEvent
 ; name via RegisterForModEvent, so declaring it here is safe.
 Event OnTravelComplete(String asTagStatus, Float afNumArg, Form akSender)
 EndEvent
+
+; Standpoint 1.6.0: the stpm test's ear (Standpoint_PlayerAlias.ApiTestListen) - the handlers of Standpoint's own six
+; Standpoint_* events, with the signatures StandpointAPI.psc documents (same reason as above).
+Event OnStpmArrived(Form akWalker, Float afDist, Float afAngErr)
+EndEvent
+Event OnStpmFailed(Form akWalker, Float afCode)
+EndEvent
+Event OnStpmInterrupted(Form akWalker, Float afCode)
+EndEvent
+Event OnStpmMoveResult(Form akWho, Int aiHandle, String asOutcome, Int aiDetail, Float afDistCm, Float afFacingHour, Float afOrientHour, Form akWhere)
+EndEvent
+Event OnStpmWalkResult(Form akWho, Int aiHandle, String asOutcome, Int aiDetail, Float afDistLeft, Float afSubmerged)
+EndEvent
+Event OnStpmDirectWalk(String asEventName, String asWhat, Float afWalkHandle, Form akWho)
+EndEvent

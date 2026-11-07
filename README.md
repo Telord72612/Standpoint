@@ -3,15 +3,72 @@
 **Tell an NPC where to stand. She walks there, turns the right way, stays put — and you are told how it went.**
 
 Standpoint is an SKSE framework for Skyrim (VR, SE and AE from one DLL) for mod authors. Your mod says
-*"go stand 1 metre to the right of that chair, facing it"*; Standpoint does the walking with the game's own
-travel packages (no teleporting, no sliding) and reports back what really happened.
+*"go stand 1 metre to the right of that chair, facing it"* or *"walk into that lake until the water is at her
+thighs"*; Standpoint finds the spot, plans the way there, walks her (no teleporting, no sliding) and reports back
+what really happened.
 
-**Version 1.1** — fixes the Address Library error on Skyrim AE 1.7. One DLL for Skyrim VR, SE (1.5.97) and
-AE (1.6 and 1.7).
+**Version 2.0** — Standpoint now plans its own path and steers the NPC itself in Skyrim VR: around tables, through
+doors, up and down stairs, off the navmesh into water, and up to the edge of the loaded area (100+ m) with
+run, jog and walk. See [What's new in V2.0](#whats-new-in-v20). One DLL for Skyrim VR, SE (1.5.97) and AE (1.6
+and 1.7).
 
 > **Free for everyone.** This project is released into the public domain. Use it, copy it, change it, ship it
 > inside your own mod, sell it — anything you like. **No permission and no credit needed.** (Details at the
 > [bottom](#license).)
+
+---
+
+## What's new in V2.0
+
+Version 1 asked the game's own AI to walk the NPC to the spot. That works on open floor, but the game's AI gets
+stuck turning in place next to tables, takes strange detours (even through a house to reach you outside), and
+never walks off the navmesh. **In V2.0 (Skyrim VR) Standpoint walks her itself.** Nothing changes in how you
+call it: the same requests, the same answers, the same events.
+
+**How a walk works now**
+
+1. **Find the spot.** For "the left side of that chair, 1 m away" the solver works out the exact spot and checks
+   it with physics rays: real floor under her feet, room for her body and head, not inside a table, not on a
+   stair, not on another level. Bad spots are refused with a reason; the next side is tried.
+2. **Plan the way.** The navmesh is used as a guide (a "skeleton" of the route), and every piece of the route is
+   tested with rays at her body size before she takes it. Long routes are planned in pieces while she is already
+   moving, so she starts within about half a second and never stops between pieces.
+3. **Walk her there.** Standpoint steers her the way a hand pulling her would (the same mechanism HIGGS / PLANCK
+   use): the game still plays her real walking, jogging and running steps. She opens ordinary doors on the way,
+   takes stairs, goes around NPCs standing in the way, and turns to face the asked direction at the end.
+
+**What you get**
+
+| | V2.0 |
+|---|---|
+| Sides of an NPC or an object | one planned path, no step-back-and-around, no turning in place |
+| Close contact (two NPCs) | 45 cm asked → about 44 cm measured |
+| Arrivals | typically within 3-5 cm of the spot, facing within 1-2° |
+| Long walks | up to the loaded area's edge (about 110 m with default settings); beyond it you get an answer at once (`O` `26`) |
+| Speed | runs while more than 15 m from the spot, jogs down to 3 m, walks the last 3 m (a band shorter than 1 s is skipped) |
+| Doors | ordinary doors are opened (locked, load and trapped doors are walls); a door swinging shut is waited for |
+| Stairs | walked up and down; she never stops on a stair |
+| Water | `WalkToWater`: she walks into the nearest water and goes in until shin, then knee, then thigh deep if there is such a spot within two body lengths — all in one smooth walk |
+| No way at all | one try with the game's own walk (never for close contact), so a spot behind a load door still works |
+
+**New calls** (Papyrus; the C++ interface has the same):
+
+```papyrus
+; walk to an exact point, facing a direction (degrees); -1 = keep the travel direction
+Int h = StandpointAPI.WalkTo(npc, x, y, z, 90.0)
+
+; walk into the nearest water within 20 m, shin to thigh deep
+Int w = StandpointAPI.WalkToWater(npc, 20.0)
+
+; both answer once, with this event (or poll GetWalkOutcome(handle))
+RegisterForModEvent("Standpoint_WalkResult", "OnWalkResult")
+Event OnWalkResult(Form akWho, Int aiHandle, String asOutcome, Int aiDetail, Float afDistLeft, Float afSubmerged)
+EndEvent
+```
+
+**On SE / AE** the new walking is switched off by default (`Standpoint.ini`: `[DirectWalk] SEAE`), and every
+request uses the game's own walk exactly as in version 1. **On VR** you can switch the new walking off for
+`GoTo` / `GoToPoint` / `RequestMove` with `[Session] Steered = 0`.
 
 ---
 
@@ -323,6 +380,9 @@ RegisterForModEvent("Standpoint_Arrived", "OnArrived")   ; (Form walker, Float d
 RegisterForModEvent("Standpoint_Failed",  "OnFailed")    ; (Form walker, Float reasonCode)
 ```
 
+To walk to an exact point, or into water, use `WalkTo` / `WalkToWater` and the `Standpoint_WalkResult` event
+(see [What's new in V2.0](#whats-new-in-v20)).
+
 Everything Papyrus can do, with copy-paste patterns, is in the [in-depth guide](docs/MODDER_API.md).
 
 ---
@@ -337,8 +397,8 @@ on a shoulder.
 - **She may step into the other person's space.** For the length of the request the two do not collide with
   each other (VR with HIGGS). Walls, furniture and everybody else stay solid.
 - **She walks every step.** Nothing slides or teleports her.
-- **Want her on another side of the same person?** Just ask for it. She steps back, walks around, and comes in
-  on the side you asked — by herself, inside the one request.
+- **Want her on another side of the same person?** Just ask for it. She walks one planned path around the person
+  and comes in on the side you asked — by herself, inside the one request.
 - **Blocked?** She notices within a second or two and tries another way. If there is none, you get `O` `17`.
 
 Three habits that make it work:
@@ -349,8 +409,8 @@ Three habits that make it work:
    yourself first.
 3. **Read the answer.** `C` `0` = on the spot. `C` `9` = close by, a little short. `O` `17` = could not get there.
 
-Rough timings: walking in from a metre and a half takes about 6 seconds including settling; moving to another
-side of the same person 13 to 28 seconds.
+Rough timings (V2.0, VR): walking in from a metre and a half takes about 2-4 seconds including settling; moving
+to another side of the same person about 5-10 seconds.
 
 ---
 
@@ -367,17 +427,29 @@ every answer is shown in the console and written to `SKSE/Standpoint.log`.
 
 Type `stpt` again to stop and release everyone.
 
+Two more test commands (VR):
+
+- **`stpf`** — click an NPC, type `stpf`: she keeps coming to 3 m in front of you whenever you stop and stand
+  still. Walk far away and she runs, jogs and walks back to you. `stpf` again stops it.
+- **`stpm`** — click an NPC, `stpm`; click a target (a chair or another NPC), `stpm`: 32 steps that send her to
+  the same spot with every call (`GoToPoint`, `WalkTo`, `RequestMove`), around the target with `GoTo` and
+  `RequestMove`, hand her from one call to another, and into water. Every step and answer goes to the log.
+- Crouched `stpt` on the walker: `WalkToWater`.
+
 ---
 
 ## What you can count on
 
 | | Measured in Skyrim VR |
 |---|---|
-| Facing on arrival | within about **1°** (typically 0.1°) |
-| Position on arrival | within a few centimetres on open floor |
-| Drift while she is held | **none** — the engine pins her |
-| Two NPCs close together | down to about **30 cm**, on foot |
-| NPCs moving at the same time | **4** |
+| Facing on arrival | within about **1°** (typically 0.0-0.4°) |
+| Position on arrival | within **3-5 cm** (median, V2.0) |
+| Drift while she is held | **none** |
+| Two NPCs close together | down to about **30 cm**, on foot (45 cm asked → 44 cm) |
+| Planning a route | median **0.1 s**, worst seen 0.7 s; never more than ~1 ms of a frame |
+| Speeds (told → measured) | walk ~75, jog ~180, run ~285 game units / s |
+| Wading | shin → thigh: 30-41 % of her height under water |
+| NPCs moving at the same time | **4** sessions plus the plain walks |
 
 ## Install
 
@@ -387,7 +459,7 @@ scripts, and the header and guide for modders.
 
 **Needs:** SKSE (SKSEVR for VR, SKSE64 for SE / AE), the matching Address Library, and PapyrusUtil.
 **Optional:** HIGGS in VR (lets Standpoint notice the player grabbing an NPC, and lets two NPCs stand inside
-each other's space); Water Finder (only for the "send her to the water" pattern in the guide).
+each other's space); Water Finder 1.6.2 or newer (for `WalkToWater`).
 
 One DLL serves VR, SE and AE. **Everything here was measured in Skyrim VR.** SE and AE use the same code and the
 same core game AI, but have not been measured — check one arrival before you build on it there.
@@ -398,7 +470,8 @@ same core game AI, but have not been measured — check one arrival before you b
   gets there is your mod's job.
 - **It does not make her use furniture.** It parks her *at* it. Give her a sit or sleep package afterwards.
 - **It never rescues a stuck NPC by teleporting her.** She fails honestly (`O`) and you decide.
-- **It is not a path-finder.** The game's navmesh does the walking.
+- **It does not cross load doors itself.** Its own path stays in the loaded world around the NPC; for a spot
+  in another cell the game's own walk takes one try.
 - **Standing within arm's reach of an object** — 5 cm from a table edge to pick something up — is planned, not
   built. Today an object's own size plus her body is the nearest she gets.
 
@@ -413,11 +486,12 @@ same core game AI, but have not been measured — check one arrival before you b
 
 ## How it works, in five lines
 
-A solver turns "the left side of that bed" or "3 o'clock, 100 cm" into an exact point on the navmesh and a
-heading. A session engine puts an invisible idle marker there and gives the NPC a travel package that ends
-on that marker, so the game's own arrive-and-pose machinery does the precise part. A poll watches for arrival,
-interruption, danger and blockage, and names every ending. For C++ callers the DLL is a mailbox: it hands the
-request to that engine and measures the result.
+A solver turns "the left side of that bed" or "3 o'clock, 100 cm" into an exact spot and a heading, checked
+with physics rays. A planner builds a route from the navmesh's triangles and tests every leg with rays at her
+body size; long routes are added piece by piece while she walks. A steering hook (the same "planner direct
+control" HIGGS / PLANCK use) moves her along it at walk, jog or run, and the game plays her real steps. A
+Papyrus driver keeps the contract — busy state, holds, poses, events, danger and leash rules — and names every
+ending. On SE / AE (and with `Steered = 0`) the driver hands the walk to the game's own travel package instead.
 
 ## License
 

@@ -8,19 +8,22 @@
 #include "SlotSolver.h"
 #include "StandpointAPI.h"
 #include "MoveApi.h"
+#include "WalkApi.h"
 
 namespace logger = SKSE::log;
 
 namespace {
 
-    constexpr unsigned int kBuildNumber = 2;   // 2 = Standpoint 0.8.0: IStandpoint2 (RequestMove)
+    // 2 = Standpoint 0.8.0: IStandpoint2 (RequestMove); 3 = 1.4.0: IStandpoint3 (RequestWalk); 4 = 1.5.0: IStandpoint4
+    // (RequestWalkToWater)
+    constexpr unsigned int kBuildNumber = 4;
 
     RE::TESObjectREFR* RefFrom(std::uint32_t formID)
     {
         return formID ? RE::TESForm::LookupByID<RE::TESObjectREFR>(formID) : nullptr;
     }
 
-    class StandpointInterface : public StandpointAPI::IStandpoint2 {
+    class StandpointInterface : public StandpointAPI::IStandpoint4 {
     public:
         unsigned int GetBuildNumber() override { return kBuildNumber; }
 
@@ -70,16 +73,37 @@ namespace {
         {
             return standpoint_move::Request(request, callback, user);
         }
+
+        // revision 3 (v1.4.0): the walk off the navmesh (WalkApi.cpp -> the planner -> DirectWalk.cpp), VR only
+        std::uint32_t RequestWalk(const StandpointAPI::WalkRequest& request, StandpointAPI::WalkCallback callback,
+                                  void* user) override
+        {
+            return standpoint_walk::Request(request, callback, user);
+        }
+
+        bool IsDirectWalking(std::uint32_t formId) override
+        {
+            return standpoint_walk::IsDirectWalking(formId);
+        }
+
+        // revision 4 (v1.5.0): the walk into water (WalkApi.cpp: Water Finder's seed -> the wade-spot plan -> DirectWalk)
+        std::uint32_t RequestWalkToWater(const StandpointAPI::WaterWalkRequest& request, StandpointAPI::WalkCallback callback,
+                                         void* user) override
+        {
+            return standpoint_walk::RequestWater(request, callback, user);
+        }
     };
 
     StandpointInterface g_interface;
 
     void* GetApiFunction(unsigned int revision)
     {
-        // IStandpoint2 only APPENDS to IStandpoint1's vtable, so a revision-1 caller reads the same object
+        // each revision only APPENDS to the one before (single inheritance), so an older caller reads the same object
         if (revision == 1) return static_cast<StandpointAPI::IStandpoint1*>(&g_interface);
         if (revision == 2) return static_cast<StandpointAPI::IStandpoint2*>(&g_interface);
-        logger::warn("API: revision {} not supported (max 2)", revision);
+        if (revision == 3) return static_cast<StandpointAPI::IStandpoint3*>(&g_interface);
+        if (revision == 4) return static_cast<StandpointAPI::IStandpoint4*>(&g_interface);
+        logger::warn("API: revision {} not supported (max 4)", revision);
         return nullptr;
     }
 
