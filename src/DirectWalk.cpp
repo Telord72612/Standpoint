@@ -37,7 +37,7 @@
 //    * a STANDING NPC plays random idle clips that set the graph's animation-driven flags (the 1.5.0 VR run: two walks ended
 //      animation-lock, one a correctly planned bath wade); "IdleForceDefaultState" sent to her graph ends the clip - the event
 //      Standpoint's own session let-go sends (Debug.SendAnimationEvent = IAnimationGraphManagerHolder::NotifyAnimationGraph).
-//    * the planner-direct speed is NORMALISED: 1.0 = her walk (~83-90 u/s measured for Sofia), ~2.0 = her full run (PPB's
+//    * the planner-direct speed is NORMALISED: 1.0 = her walk (~83-90 u/s measured for a test follower), ~2.0 = her full run (PPB's
 //      measure); never a value between 0 and her walk (she does not move).
 //    * PLANCK = activeragdoll.dll (it leads an NPC the player's HIGGS hand grabs); PPB = PPB.dll (its push walk takes planner
 //      direct control while a hand presses her).
@@ -207,7 +207,7 @@ namespace {
     constexpr float kRunAboveU       = 1050.f;  // 15 m: she runs while more route than this is left ...
     constexpr float kJogAboveU       = 210.f;   // ... jogs down to 3 m, walks the last 3 m (the 6 u stop, the facing, the re-approach)
     constexpr float kMinBandS        = 1.0f;    // a band is entered only if it would last this long at its own speed
-    constexpr float kWalkUps         = 98.f;    // her speeds per band for the 1 s rule and the ramp leads when not measured (Sofia:
+    constexpr float kWalkUps         = 98.f;    // her speeds per band for the 1 s rule and the ramp leads when not measured (a test follower:
     constexpr float kJogUps          = 220.f;   // told 1.0 ~98 u/s, told 1.5 212-229 u/s, told 2.0 ~360 u/s - R2's fit, S2 §3.1)
     constexpr float kRunUps          = 360.f;
     constexpr float kSpeedRampPerS   = 1.5f;    // normalised per second, both ways: walk <-> jog in a third of a second, run -> walk
@@ -221,7 +221,7 @@ namespace {
                                                 // look-ahead 48 u
     constexpr float kSteepRatio      = 0.5f;    // a leg steeper than this rise / run (27 deg), up or down: jog at most
     constexpr float kSteepMinLegU    = 8.f;     // (legs shorter than this are not judged for steepness)
-    constexpr float kInWaterLvl      = 0.05f;   // 1.6.1 (B4): "she is in the water" from this submerged level (~7 u for Sofia)
+    constexpr float kInWaterLvl      = 0.05f;   // 1.6.1 (B4): "she is in the water" from this submerged level (~7 u for a test follower)
     constexpr float kBedSlope        = 0.25f;   // ... a water point's edge lies its depth / this before it (a gentle 14 deg bed) ...
     constexpr float kWaterEdgeMinU   = 64.f;    // ... at least this far before it
     constexpr float kLookAheadS      = 0.35f;   // 1.6.0 the pure-pursuit look-ahead = this x her measured speed ...

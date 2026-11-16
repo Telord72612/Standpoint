@@ -1,6 +1,6 @@
 Scriptname StandpointAPI Hidden
 { ============================================================================
-  Standpoint - public Papyrus API (v2.0.0). SHIPS with the mod.
+  Standpoint - public Papyrus API (v2.0.3). SHIPS with the mod.
 
   "Walk this NPC to a precise stand-slot at a target and have them arrive
   FACING the right way, then hold there." Slots come from real furniture
@@ -80,6 +80,10 @@ Scriptname StandpointAPI Hidden
 ;   when an entry is TAKEN - she is never stood beside an occupied seat; every entry taken answers Failed 1, as before); a close RequestMove ends
 ;   on the asked distance (1.6.0 stopped about 5 u short of it); a steered GoToPoint that ends off the navmesh is held by the
 ;   walk's own stand (no marker).
+; v2.0.3: placed water whose base has empty object bounds (some mod pools) is seen (its size from its loaded 3D); the wading-spot
+;   search (WalkToWater) looks shin -> knee -> thigh (up to 0.45 x her height) first and goes deeper - up to 0.60 x H, never past
+;   your afDepthMaxFrac, the spot nearest thigh depth - only when nothing there is reachable; a CLOSE RequestMove (an NPC-to-NPC wash) aims for a spot at most 0.45 x her height
+;   deep and, when none is standable or reachable, accepts a deeper one - nearest to 0.45 first, up to 0.60 x H.
 
 String Function GetVersion() Global
     If Game.GetModByName("Standpoint.esp") == 255
@@ -279,7 +283,7 @@ Int Function WalkTo(Actor akWho, Float afX, Float afY, Float afZ, Float afFacing
     If !akWho || Game.GetModByName("Standpoint.esp") == 255
         Return 0
     EndIf
-    ; Her session is released only where the walk can run (the 1.4.0 review): on SE / AE WalkStart answers B 19 (once) and
+    ; Her session is released only where the walk can run (1.4.0): on SE / AE WalkStart answers B 19 (once) and
     ; her GoTo / hold goes on untouched. Her older WALK is not stopped here: WalkStart replaces it itself (X 6) and keeps her
     ; held until the new walk takes her. (v1.5.1: nor is the far session of her older walk: that walk is replaced, X 6.)
     Bool canWalk = Standpoint.WalkSupported()
@@ -369,14 +373,14 @@ Function ApiMoveDone(Int aiHandle, Int aiWho, Int aiWhere, String asOutcome, Int
     EndIf
     Int ev = ModEvent.Create("Standpoint_MoveResult")
     If ev
-        ModEvent.PushForm(ev, Game.GetForm(aiWho))
+        ModEvent.PushForm(ev, Game.GetFormEx(aiWho))
         ModEvent.PushInt(ev, aiHandle)
         ModEvent.PushString(ev, asOutcome)
         ModEvent.PushInt(ev, aiDetail)
         ModEvent.PushFloat(ev, afDistCm)
         ModEvent.PushFloat(ev, afFacingHour)
         ModEvent.PushFloat(ev, afOrientHour)
-        ModEvent.PushForm(ev, Game.GetForm(aiWhere))
+        ModEvent.PushForm(ev, Game.GetFormEx(aiWhere))
         ModEvent.Send(ev)
     EndIf
 EndFunction
@@ -389,7 +393,7 @@ Function ApiWalkDone(Int aiHandle, Int aiWho, String asOutcome, Int aiDetail, Fl
     EndIf
     Int ev = ModEvent.Create("Standpoint_WalkResult")
     If ev
-        ModEvent.PushForm(ev, Game.GetForm(aiWho))
+        ModEvent.PushForm(ev, Game.GetFormEx(aiWho))
         ModEvent.PushInt(ev, aiHandle)
         ModEvent.PushString(ev, asOutcome)
         ModEvent.PushInt(ev, aiDetail)

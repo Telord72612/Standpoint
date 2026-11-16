@@ -1,5 +1,5 @@
 Scriptname Standpoint Native Hidden
-{ Standpoint SKSE plugin natives (v2.0.0). SHIPS with the mod. }
+{ Standpoint SKSE plugin natives (v2.0.3). SHIPS with the mod. }
 
 ; Write a line to SKSE/Standpoint.log (pure Papyrus cannot reach that file).
 Function Log(String asMsg) Global Native
@@ -13,7 +13,7 @@ Float Function GetEngineSettingFloat(String asName) Global Native
 Bool Function SetEngineSettingFloat(String asName, Float afValue) Global Native
 
 ; The engine's live cursor into akActor's current package procedure tree.
-; MEASURED S1 (2026-08-15): the runtime index counts PROCEDURES, not tree nodes.
+; MEASURED (2026-08-15): the runtime index counts PROCEDURES, not tree nodes.
 ; For Standpoint_TravelAndPose: 0 = Travel running, 1 = UseIdleMarker running;
 ; ARRIVAL SIGNAL = the 0 -> 1 transition. -2 = no actor/AI process.
 ; A run-once package can shadow this — always pair with GetCurrentPackageFormID.
@@ -22,7 +22,7 @@ Int Function GetCurrentProcedureIndex(Actor akActor) Global Native
 ; FormID of the package the AI is currently executing (0 = none/no process).
 Int Function GetCurrentPackageFormID(Actor akActor) Global Native
 
-; ---- S2 (v0.3.0) -----------------------------------------------------------
+; ---- the solver (v0.3.0) ---------------------------------------------------
 
 ; Solve a validated stand-slot + facing for a destination.
 ; aiRelation: 0=nearest 1=front 2=right 3=back 4=left (in the TARGET's facing frame)
@@ -183,7 +183,7 @@ Bool Function SteerCheck(Actor akWho, ObjectReference akTarget, Float afX, Float
 ; Returns the steer id (>= 1); 0 = refused (no walker, or SteerSupported() is False). Her older steered session (a retask) is
 ; replaced; her older walk is replaced too and keeps her held until the new one takes her.
 Int Function SteerStart(Actor akWho, Int aiSlot, ObjectReference akTarget, Float[] afAsk) Global Native
-; [] = no such steer (a load, never made). Else 23 values (19 until 1.6.1's fix-up; the driver reads [19..22] only when present):
+; [] = no such steer (a load, never made). Else 23 values (19 before 1.6.1; the driver reads [19..22] only when present):
 ;   [0] phase 0 solving, 1 planning, 2 walking, 3 arrived (held by the walk's stand, or let go: [16]), 4 ended, 5 handed off,
 ;       6 waiting (a grab / combat - [15]; she walks on when it is over)
 ;   [1] letter 0 none, 1 C, 2 P, 3 O, 4 D, 5 L, 6 X, 7 B, 8 F = no route: the driver walks ONE engine leg to the spot,

@@ -85,6 +85,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include "PCH.h"
 #include "PathPlanner.h"
+#include "AddrLib.h"     // 2.0.2 (C, with the session's OK): the two water-height calls are guarded on SE / AE
 
 #include <algorithm>
 #include <array>
@@ -211,9 +212,13 @@ namespace {
     // C7 (review R1 #2, the coordinator's rule): Htop = the TOP of her own controller bound (collisionBound.center.z +
     // extents.z, read from her controller: 66.6 + 64.9 = 131.5 u in the 11-03 VR log) + 2 u - never a fixed 134. A top outside
     // 0.6-1.6 H is not trusted: then H (GetHeight) + 2.
+    // (2.0.4, BiSR letter 41) the bound is NOT scaled by the engine (the 11-15 VR log: the same 66.6 + 64.9 for an NPC at scale
+    // 0.93 and one at 1.00, controller scale 1.00 for both): the top used = that top x her scale (GetScale, as j.scale) - 124 u
+    // + 2 for her at 0.93 (GetHeight 119 u), not 133 u. The trust check (0.6-1.6 H) uses the same scaled top.
     constexpr float  kVHeadPad       = 2.f;
     constexpr float  kVHeadLogFrac   = 0.6f;     // a headroom refusal with at least 0.6 Htop of clearance (a lintel, a beam) is logged ...
     constexpr int    kVHeadLogMax    = 8;        // ... once per 64 u spot, at most 8 lines a plan (the VR log then shows real door heights)
+    constexpr int    kVHitLogMax     = 8;        // (2.0.4) hit lines (what a refusing ray met) per rule per plan - log lines only
     constexpr float  kVColumnPad     = 4.f;      // C6: the side columns run from the floor + riser + 4 up to the floor + Htop
     constexpr float  kVEdgeDropPad   = 4.f;      // (review R1 #7) `edge` = a neighbour more than riser + 4 u lower (or no floor)
     constexpr std::array<float, 4> kVNudge{ 8.f, -8.f, 16.f, -16.f };   // C11: a step failing only beside her, retried aside
@@ -231,6 +236,7 @@ namespace {
     constexpr float  kVLevelBand     = 8.f;      // item 1: "the same floor" = |dz| <= one step + 8 u
     constexpr int    kVCasts         = 7;        // C12: a ray steps over at most 6 hits that are neither floor nor blocking
     constexpr float  kVActorPad      = 8.f;      // C13: a standing actor's disc = her extents.x + rc + 8
+    constexpr float  kVDiscEndMargin = 8.f;      // (2.0.1) a disc round her START / the goal keeps her out only deeper than that point - 8 u
     constexpr float  kVWadeNbrFrac   = 0.10f;    // item 8 (b): a patch neighbour's depth lies in [0.10 H, the cap]
     constexpr float  kVCorrGoalBand  = 96.f;     // the corridor's goal on the navmesh: 1.3.0's own band and slide
     constexpr int    kVCorrMaxStraight = 8;      // a corridor leg is cut at least every 8 cells (256 u): repairs stay local
@@ -241,7 +247,7 @@ namespace {
     constexpr std::int32_t kNbrUnset = -2;       // an expansion's neighbour level not looked up yet
 
     // ---- 1.5.1 (D_Standpoint_151_Build_Spec.md §4) - x.v15 plans and the probes only ------------------------------------
-    constexpr float  kVConeFrac      = 0.9f;     // the TERRAIN riser = 0.9 x her hull's CONE (the 1.5.0 VR run: Sofia 38.0 u -> 34 u)
+    constexpr float  kVConeFrac      = 0.9f;     // the TERRAIN riser = 0.9 x her hull's CONE (the 1.5.0 VR run: a test follower 38.0 u -> 34 u)
     constexpr float  kVRiserMax      = 40.f;     // ... clamped 24-40 u - only on navmesh terrain / ground (review fix #2: every other
                                                  // floor keeps 1.5.0's 26 u x scale, so a 30-31 u bench / chair seat is never a step)
     constexpr float  kVConeMin       = 8.f;      // a cone read outside 8-120 u is not trusted (then 1.5.0's 26 u x scale)
@@ -322,6 +328,16 @@ namespace {
 
     // (1.5.0: + kXNavCorr / kXNavLegs - the MIX's navmesh corridor and its legs; the value order is internal)
     // (1.6.0: + kXSkeleton - NavGraph's triangle path stepped here; kXRing - the goal's ring search; kXFlood - the wade flood)
+    // (2.0.3) WHICH rule refused a search step (XStepRules: XProfile / XBody / XBrinkClear) - counted per plan, the first 4 kept with
+    // their two ends, printed on a NO ROUTE (BiSR letter 40: "33 steps blocked" said nothing about which rule)
+    enum StepWhy : int { kSwNone = 0, kSwProfFloor, kSwProfRise, kSwProfSlope, kSwProfPlan, kSwProfEnd, kSwDisc, kSwKnee, kSwChest, kSwDiag,
+                         kSwHead, kSwSideKnee, kSwClear, kSwColumns, kSwBrink, kSwCount };
+    constexpr const char* kStepWhyName[kSwCount] = { "?", "no floor on the way", "a rise over her riser on the way", "too steep on the way",
+                                                     "a bad spot / water / no cell on the way", "the end over a riser from the way",
+                                                     "a standing actor", "the knee ray", "the chest ray", "a diagonal body ray",
+                                                     "headroom on her line", "a knee ray beside her", "a clearance probe beside her",
+                                                     "a side column (a table top / counter beside her)", "a brink or a rise beside her" };
+
     enum XPhase : int { kXMeasure = 0, kXWaters, kXStart, kXGoal, kXMarch, kXGate, kXLegacy, kXStraight, kXGrid, kXSearch,
                         kXPartialEnd, kXSplit, kXPull, kXSpace, kXCorners, kXAssemble, kXNavCorr, kXNavLegs, kXSkeleton, kXRing, kXFlood,
                         kXDone };
@@ -467,10 +483,27 @@ namespace {
         int         ringMarch{ 0 };       // (fix round, R2 #4) the ring found nothing: the 1.5.1 march ran after it
         int         ringTight{ 0 };       // (1.6.1 A4) ring spots refused as too tight for her body (a table edge, a chair, a wall)
         int         nudgeFlips{ 0 };      // (fix round, R2 #13) side-steps that tried the other side once
+        std::array<int, kSwCount> stepFails{};   // (2.0.3) refused search steps by rule ...
+        std::string stepSamples;          // ... and the first 4 with their ends
+        int         stepSampleN{ 0 };
         std::string skeleton;             // the SKELETON summary for the PATH line
         std::string flood;                // the flood's summary
         std::string scans;                // the wade scans' summary
         std::string chunk;                // the chunk's summary
+    };
+
+    // (2.0.4, BiSR letter 41) what a refusing ray met - XRayBlocked fills it on EVERY blocked answer with plain values only (no
+    // reference is asked during the search); the hit lines read it after the refusal. seq changes on each blocked answer.
+    struct RayHitRec {
+        std::uint32_t seq{ 0 };
+        bool          exhausted{ false };     // counted blocked because the step-over casts ran out (kVCasts)
+        bool          bad{ false };           // a hit without a usable fraction / body
+        RE::NiPoint3  a{}, b{};               // the ray as asked
+        RE::NiPoint3  at{};                   // the blocking hit (exhausted: where the last cast ended)
+        std::uint32_t layer{ 0 };
+        float         nz{ 0.f };              // the hit's normal z, signed and normalised (0 = not known)
+        int           overN{ 0 };             // the hits stepped over before it, and their layers
+        std::array<std::uint8_t, kVCasts> over{};
     };
 
     struct ExState {
@@ -545,6 +578,7 @@ namespace {
         float        rc{ 24.f };          // C5 clearance
         float        htop{ 134.f };       // C7 headroom
         bool         htopFromBound{ false };
+        float        boundTopS{ 0.f };    // (2.0.4) her controller bound's top x her scale (the bound itself is not scaled)
         // the test running now (rays read these): doors may be passed / the door passed / the first blocking hit kept
         bool          doorsOk{ false };
         bool          doorSide{ false };  // (review R1 #1) the ray now cast is BESIDE her: it passes only the door her centre line passed
@@ -666,6 +700,29 @@ namespace {
         std::uint32_t standSideLayer{ 0 };
         RE::FormID    standSideRef{ 0 };
         std::string   fitWhy;                         // (1.6.1 A4) why a ring spot was too tight for her
+        int           stepWhy{ 0 };                   // (2.0.3) the last body / profile / brink refusal's rule (StepWhy)
+        // (2.0.4, BiSR letter 41) the hit lines: the last blocked ray (XRayBlocked), the lines written in this plan - per step rule,
+        // the line test's headroom, the cast exhaustion, the steep cells - each at most kVHitLogMax; the ray now cast (its rule's
+        // name and where, for a cast-exhaustion line) and the step now tested (stepCtx: stepA -> stepB)
+        RayHitRec     hit{};
+        std::array<int, kSwCount> hitLogN{};
+        int           lineHeadLogN{ 0 };
+        int           castLogN{ 0 };
+        int           steepCellLogN{ 0 };
+        const char*   rayWhat{ nullptr };
+        const char*   rayWhere{ nullptr };
+        bool          stepCtx{ false };
+        const char*   stepCtxName{ "the step" };
+        RE::NiPoint3  stepA{}, stepB{};
+        // (2.0.3) the user's depth rule: tier 1 up to tier1Cap (<= 0.45 H); none reachable -> tier 2 (deepTier) up to deepCap (<= 0.60 H),
+        // where a candidate deeper than tier1Cap never ends a scan: the shallowest such is kept (alt*: -2 = the entry E itself, a cell
+        // index else, with its scan's chain) and the candidate nearest to thigh depth wins at the end
+        bool               deepTier{ false };
+        float              tier1Cap{ 0.f }, deepCap{ 0.f };
+        std::int32_t       altIdx{ -1 };
+        float              altDepth{ 0.f };
+        int                altPatch{ 0 }, altStage{ 0 };
+        std::vector<PCell> altChain;
         // §5 the stair allowance: the step / line being tested used it; a stair step is tested - a ray BESIDE her meeting the
         // stair's own sloped face steps over it (centre rays and headroom still block)
         bool         stairUsed{ false };
@@ -1527,14 +1584,23 @@ namespace {
                 if (!cell) return false;                       // unknown is not dry
                 if (!x.placedInCell) {
                     float cw = 0.f;
-                    if (cell->GetWaterHeight(p, cw) && IsFiniteHeight(cw) && cw >= a_z - kXInteriorDown && cw <= a_z + kXInteriorUp) {
+                    // (2.0.2, SE / AE: guarded - AddrLib.h; a missing TESObjectCELL::GetWaterHeight = no water plane here)
+                    if (standpoint_addrlib::Has(standpoint_addrlib::kCellGetWaterHeight) && cell->GetWaterHeight(p, cw) && IsFiniteHeight(cw) &&
+                        cw >= a_z - kXInteriorDown && cw <= a_z + kXInteriorUp) {
                         a_surface = cw;
                     }
                 }
             } else {
                 auto* cell = tes->GetCell(p);
                 if (!cell) return false;
-                const float wz = tes->GetWaterHeight(p, cell);
+                // (2.0.2, SE / AE: guarded - AddrLib.h; Skyrim AE 1.7.104 has no TES::GetWaterHeight id: the cell's own water
+                // height instead, else no water plane)
+                float wz = -RE::NI_INFINITY;
+                if (standpoint_addrlib::Has(standpoint_addrlib::kTESGetWaterHeight)) {
+                    wz = tes->GetWaterHeight(p, cell);
+                } else if (float cw = 0.f; standpoint_addrlib::Has(standpoint_addrlib::kCellGetWaterHeight) && cell->GetWaterHeight(p, cw)) {
+                    wz = cw;
+                }
                 if (IsFiniteHeight(wz)) a_surface = wz;
             }
         }
@@ -1739,6 +1805,90 @@ namespace {
         x.capAt = a_at;
     }
 
+    // (2.0.4) the plan's name in a log line: "#12" or "probe"
+    std::string PlanTag(const Job& j) { return j.handle ? std::format("#{}", j.handle) : std::string("probe"); }
+
+    // (2.0.4) for a HIT LINE only - asked after a refusal, never by the search's own tests: one ray a_from -> a_to (a short one
+    // through a hit already found, or a down ray), its first hit; with a_refs the hit's reference and its base are asked
+    // (FindCollidableRef, under the world lock). One question, counted (at most a few per line, a few lines per plan).
+    struct HitPick {
+        bool          hit{ false };
+        RE::NiPoint3  at{};
+        std::uint32_t layer{ 0 };
+        RE::FormID    ref{ 0 }, base{ 0 };
+    };
+    HitPick HitPickFor(Job& j, RE::bhkWorld* a_bw, const RE::NiPoint3& a_from, const RE::NiPoint3& a_to, bool a_refs)
+    {
+        HitPick         out;
+        RE::bhkPickData pd;
+        pd.rayInput.from = { a_from.x * kToHavok, a_from.y * kToHavok, a_from.z * kToHavok, 0.f };
+        pd.rayInput.to   = { a_to.x * kToHavok, a_to.y * kToHavok, a_to.z * kToHavok, 0.f };
+        pd.rayInput.enableShapeCollectionFilter = false;
+        pd.rayInput.filterInfo.filter           = j.rayFilter;
+        ++j.queries;
+        ++j.rays;
+        const WorldRead lock(a_bw);
+        if (!a_bw->PickObject(pd) || !pd.rayOutput.HasHit()) return out;
+        const float              f = pd.rayOutput.hitFraction;
+        const RE::hkpCollidable* col = pd.rayOutput.rootCollidable;
+        if (!(f >= 0.f && f <= 1.f) || !col) return out;
+        out.hit = true;
+        out.at = a_from + (a_to - a_from) * f;
+        out.layer = col->broadPhaseHandle.collisionFilterInfo.filter & 0x7Fu;
+        if (a_refs) {
+            if (auto* ref = RE::TESHavokUtilities::FindCollidableRef(*col)) {
+                out.ref = ref->GetFormID();
+                if (const auto* base = ref->GetBaseObject()) out.base = base->GetFormID();
+            }
+        }
+        return out;
+    }
+
+    // (2.0.4) the reference of a hit already found at a_at (layer a_layer) on a ray going a_dir (unit): a 4 u ray through it
+    std::string HitRefNote(Job& j, RE::bhkWorld* a_bw, const RE::NiPoint3& a_at, const RE::NiPoint3& a_dir, std::uint32_t a_layer)
+    {
+        const HitPick p = HitPickFor(j, a_bw, a_at - a_dir * 2.f, a_at + a_dir * 2.f, true);
+        if (!p.hit) return "ref: not found again";
+        if (p.layer != a_layer) return std::format("ref: the check ray met layer {} instead", p.layer);
+        if (!p.ref) return "ref: none (no reference for that body)";
+        return p.base ? std::format("ref {:08X} (base {:08X})", p.ref, p.base) : std::format("ref {:08X} (no base)", p.ref);
+    }
+
+    // (2.0.4) the layers a ray stepped over, for a hit line: "8, 8, 30" / "none"
+    std::string OverList(const RayHitRec& a_h)
+    {
+        std::string s;
+        for (int k = 0; k < a_h.overN && k < kVCasts; ++k) s += std::format("{}{}", k ? ", " : "", a_h.over[static_cast<std::size_t>(k)]);
+        return s.empty() ? std::string("none") : s;
+    }
+
+    // (2.0.4) why the stair allowance did not keep a steep floor (n.z 0.66-0.70, a layer 1 / 3 / 31, the navmesh under it)
+    std::string StairNoNote(float a_nz, std::uint32_t a_layer, bool a_nav)
+    {
+        if (a_nz < kStairNz) return std::format("no (n.z under {:.2f})", kStairNz);
+        if (!IsStairLayer(a_layer)) return "no (layer not 1 / 3 / 31)";
+        if (!a_nav) return "no (no navmesh under it)";
+        return "it would (n.z, layer and navmesh fit)";
+    }
+
+    // (2.0.4) the rule name and the place of the ray now cast, restored on leaving (a cast-exhaustion line names them)
+    struct RayWhatScope {
+        ExState&    x;
+        const char* what0;
+        const char* where0;
+        RayWhatScope(ExState& a_x, const char* a_where = nullptr) : x(a_x), what0(a_x.rayWhat), where0(a_x.rayWhere)
+        {
+            if (a_where) x.rayWhere = a_where;
+        }
+        ~RayWhatScope()
+        {
+            x.rayWhat = what0;
+            x.rayWhere = where0;
+        }
+        RayWhatScope(const RayWhatScope&) = delete;
+        RayWhatScope& operator=(const RayWhatScope&) = delete;
+    };
+
     // RayBlocked's 1.5.0 twin: the C12 list, up to 6 step-overs, a passable door (kDoors, one per test: x.curDoor) is stepped
     // through, and the first blocking hit is kept when the test asks for it (x.capOn). (Review R1 #1) only a CENTRE-line ray
     // may start passing a door; a ray beside her (x.doorSide) passes only the door her centre line already passed, any other
@@ -1750,8 +1900,26 @@ namespace {
         const RE::NiPoint3 total = a_b - a_a;
         const float        totalLen = total.Length();
         if (totalLen < 0.5f) return false;
-        const auto blockedAt = [&](const RE::NiPoint3& a_at) {
+        // (2.0.4) the hits stepped over (their layers) and, on a blocked answer, what it met - plain values into x.hit (the hit
+        // lines read them after a refusal; no reference is asked here)
+        int                               overN = 0;
+        std::array<std::uint8_t, kVCasts> over{};
+        const auto noteOver = [&](std::uint32_t a_layer) {
+            if (overN < kVCasts) over[static_cast<std::size_t>(overN++)] = static_cast<std::uint8_t>(a_layer);
+        };
+        const auto blockedAt = [&](const RE::NiPoint3& a_at, std::uint32_t a_layer, float a_nz, bool a_bad, bool a_out) {
             if (a_frac) *a_frac = std::clamp((a_at - a_a).Length() / totalLen, 0.f, 1.f);
+            RayHitRec& r = x.hit;
+            ++r.seq;
+            r.exhausted = a_out;
+            r.bad = a_bad;
+            r.a = a_a;
+            r.b = a_b;
+            r.at = a_at;
+            r.layer = a_layer;
+            r.nz = a_nz;
+            r.overN = overN;
+            r.over = over;
             return true;
         };
         RE::NiPoint3 from = a_a;
@@ -1798,8 +1966,10 @@ namespace {
             if (bad || !IsFixedLayerV(layer)) ++x.cacheDirty;     // 1.5.1: not a fixed world answer - never cached
             if (bad) {
                 CaptureHit(x, 0u, nullptr, at);
-                return blockedAt(at);
+                return blockedAt(at, 0u, 0.f, true, false);
             }
+            const float nvl = std::sqrt(nv[0] * nv[0] + nv[1] * nv[1] + nv[2] * nv[2]);
+            const float nzSigned = nvl > 0.5f ? nv[2] / nvl : 0.f;     // (2.0.4) for the hit lines
             if (IsBlockingLayerV(layer)) {
                 if (layer == 2 && x.doorsOk) {
                     const RE::FormID d = DoorPassFor(j, col, doorAsk, ref, leaf);
@@ -1810,6 +1980,7 @@ namespace {
                         if (segLen < 1.f) return false;
                         from = at + seg * (1.f / segLen);
                         if ((from - a_a).Length() >= totalLen) return false;
+                        noteOver(layer);
                         continue;
                     }
                 }
@@ -1824,6 +1995,7 @@ namespace {
                         if (segLen < 1.f) return false;
                         from = at + seg * (1.f / segLen);
                         if ((from - a_a).Length() >= totalLen) return false;
+                        noteOver(layer);
                         continue;
                     }
                 }
@@ -1837,18 +2009,33 @@ namespace {
                         if (segLen < 1.f) return false;
                         from = at + seg * (1.f / segLen);
                         if ((from - a_a).Length() >= totalLen) return false;
+                        noteOver(layer);
                         continue;
                     }
                 }
                 if (capAsk) CaptureHit(x, layer, ref, at);
-                return blockedAt(at);
+                return blockedAt(at, layer, nzSigned, false, false);
             }
             if (segLen < 1.f) return false;
             from = at + seg * (1.f / segLen);
             if ((from - a_a).Length() >= totalLen) return false;
+            noteOver(layer);
         }
         ++x.cacheDirty;              // (1.5.1) not proven either way
-        return blockedAt(from);      // (R1 #12) the step-overs ran out before the end: not proven clear
+        blockedAt(from, 0u, 0.f, false, true);      // (R1 #12) the step-overs ran out before the end: not proven clear
+        // (2.0.4, BiSR letter 41) every ray counted blocked this way is logged (at most kVHitLogMax a plan): which rule cast it,
+        // the step tested then, and the layers it stepped over (an actor, clutter ... each costs one of the kVCasts casts)
+        if (x.castLogN < kVHitLogMax) {
+            ++x.castLogN;
+            logger::info("PATH {} HIT cast-out: {}{}{} - the ray ({:.0f},{:.0f},{:.0f})->({:.0f},{:.0f},{:.0f}) ran out of casts after {} step-over(s) "
+                         "(layers {}) and is counted blocked at ({:.0f},{:.0f},{:.0f}), {:.0f} of {:.0f} u along it",
+                         PlanTag(j), x.rayWhat ? x.rayWhat : "a ray (not a step rule)", x.rayWhere ? std::format(" {}", x.rayWhere) : std::string(),
+                         x.stepCtx ? std::format(" on {} ({:.0f},{:.0f},{:.0f})->({:.0f},{:.0f},{:.0f})", x.stepCtxName, x.stepA.x, x.stepA.y, x.stepA.z,
+                                                 x.stepB.x, x.stepB.y, x.stepB.z) :
+                                     std::string(),
+                         a_a.x, a_a.y, a_a.z, a_b.x, a_b.y, a_b.z, overN, OverList(x.hit), from.x, from.y, from.z, (from - a_a).Length(), totalLen);
+        }
+        return true;
     }
 
     // FloorRay's 1.5.0 twin (C12): floor = 0, 1, 2, 3, 10, 13, 17, 26, 28, 31; no place to stand = 9, 20, 27, 35; water (11) is
@@ -1972,7 +2159,9 @@ namespace {
         const float px = -a_uy * x.rc, py = a_ux * x.rc;
         const bool  side0 = x.doorSide;
         x.doorSide = true;
-        bool blocked = false;
+        bool               blocked = false;
+        const RayWhatScope rw(x);                  // (2.0.4) a cast-exhaustion line names the rule
+        x.rayWhat = kStepWhyName[kSwColumns];
         for (const float sg : { 1.f, -1.f }) {
             const float cx = a_x + sg * px, cy = a_y + sg * py;
             if (XRayBlocked(j, a_bw, RE::NiPoint3{ cx, cy, a_floorZ + x.riser + kVColumnPad }, RE::NiPoint3{ cx, cy, a_floorZ + x.htop }, j.xs.rK)) {
@@ -1989,14 +2178,24 @@ namespace {
     // A refusal with a doorway-like clearance (>= 0.6 Htop: a lintel, a beam, a low ceiling - not a table) is logged once per
     // 64 u spot, at most kVHeadLogMax lines a plan, with the clearance MEASURED there - the VR log then shows real door heights.
     // true = blocked.
-    bool HeadBlocked(Job& j, RE::bhkWorld* a_bw, float a_x, float a_y, float a_floorZ, const char* a_where)
+    // (2.0.4, BiSR letter 41 fix B) a_footZ (on a step: the HIGHER of its two floor samples; NaN = a_floorZ): the ray's FOOT
+    // starts 8 s over it - on a real stair step the middle floor a_floorZ (the average of the samples) can lie inside the upper
+    // tread, and a ray starting there met that tread at once (a false "no headroom"). The TOP stays a_floorZ + Htop, so the
+    // height asked does not grow; a foot at or over the top: nothing to test here (not blocked by headroom - her other body rays
+    // still apply). The clearance reported is still measured from a_floorZ (the middle floor), comparable with 2.0.3's numbers.
+    bool HeadBlocked(Job& j, RE::bhkWorld* a_bw, float a_x, float a_y, float a_floorZ, const char* a_where,
+                     float a_footZ = std::numeric_limits<float>::quiet_NaN())
     {
         ExState&           x = *j.x;
-        const RE::NiPoint3 a{ a_x, a_y, a_floorZ + kXHeadFoot * j.scale }, b{ a_x, a_y, a_floorZ + x.htop };
+        const float        footFloor = std::isnan(a_footZ) ? a_floorZ : (std::max)(a_floorZ, a_footZ);
+        const RE::NiPoint3 a{ a_x, a_y, footFloor + kXHeadFoot * j.scale }, b{ a_x, a_y, a_floorZ + x.htop };
+        if (a.z >= b.z) return false;
         float              frac = 1.f;
+        const RayWhatScope rw(x, a_where);           // (2.0.4) a cast-exhaustion line names the rule
+        x.rayWhat = "headroom";
         if (!XRayBlocked(j, a_bw, a, b, j.xs.rR, &frac)) return false;
         ++j.xs.headFails;
-        const float clear = a.z + (b.z - a.z) * frac - a_floorZ;
+        const float clear = a.z + (b.z - a.z) * frac - a_floorZ;     // measured from the middle floor a_floorZ (as before)
         if (clear >= kVHeadLogFrac * x.htop && x.headLogged < kVHeadLogMax) {
             const auto          q = [](float a_v) { return static_cast<std::uint64_t>(static_cast<std::int64_t>(std::floor(a_v / 64.f)) & 0xFFFFF); };
             const std::uint64_t key = (q(a_x) << 40) | (q(a_y) << 20) | q(a_floorZ);
@@ -2011,6 +2210,59 @@ namespace {
         return true;
     }
 
+    // (2.0.4, BiSR letter 41) ONE hit line for a body ray that refused (x.hit: what it met, plain values from XRayBlocked): the
+    // rule, the step, the ray's from / to z, the hit, its layer, its normal z, its reference (asked now, for the line only) and -
+    // headroom - the clearance over the middle floor a_zMid (any clearance, also under 0.6 Htop), else the floor under the hit
+    // (one down ray from just before it). A cast exhaustion has its own line (XRayBlocked) and none here.
+    void LogRayHit(Job& j, RE::bhkWorld* a_bw, int a_rule, const RE::NiPoint3& a_p, const RE::NiPoint3& a_m, float a_zMid, float a_zFoot)
+    {
+        ExState&         x = *j.x;
+        const RayHitRec& h = x.hit;
+        RE::NiPoint3     dir = h.b - h.a;
+        const float      len = dir.Length();
+        dir = len > 0.01f ? dir * (1.f / len) : RE::NiPoint3{ 0.f, 0.f, 1.f };
+        const std::string refN = h.bad ? std::string("ref: a hit without a usable body") : HitRefNote(j, a_bw, h.at, dir, h.layer);
+        std::string       tail;
+        if (a_rule == kSwHead) {
+            tail = std::format("clearance {:.0f} u over the middle floor {:.0f} (needs {:.0f} u; the ray's foot over the higher floor {:.0f})",
+                               h.at.z - a_zMid, a_zMid, x.htop, std::isnan(a_zFoot) ? a_zMid : (std::max)(a_zMid, a_zFoot));
+        } else {
+            const RE::NiPoint3 st = h.at - dir * 2.f;
+            const HitPick      f = HitPickFor(j, a_bw, st, RE::NiPoint3{ st.x, st.y, st.z - x.H }, false);
+            tail = f.hit ? std::format("the floor under it {:.0f} (layer {}, {:.0f} u down)", f.at.z, f.layer, st.z - f.at.z) :
+                           std::format("no floor within {:.0f} u under it", x.H);
+        }
+        logger::info("PATH {} HIT {}: {} ({:.0f},{:.0f},{:.0f})->({:.0f},{:.0f},{:.0f}), ray z {:.0f} -> {:.0f}, hit ({:.0f},{:.0f},{:.0f}) layer {}, "
+                     "n.z {:.2f}, {}, {}{}",
+                     PlanTag(j), kStepWhyName[a_rule], x.stepCtxName, a_p.x, a_p.y, a_p.z, a_m.x, a_m.y, a_m.z, h.a.z, h.b.z, h.at.x, h.at.y, h.at.z,
+                     h.layer, h.nz, refN, tail, h.overN ? std::format(", after {} step-over(s) (layers {})", h.overN, OverList(h)) : std::string());
+    }
+
+    // (2.0.4) the step now tested, for the hit lines (restored on leaving)
+    struct StepCtxScope {
+        ExState&     x;
+        bool         on0;
+        const char*  name0;
+        RE::NiPoint3 a0, b0;
+        StepCtxScope(ExState& a_x, const char* a_name, const RE::NiPoint3& a_a, const RE::NiPoint3& a_b) :
+            x(a_x), on0(a_x.stepCtx), name0(a_x.stepCtxName), a0(a_x.stepA), b0(a_x.stepB)
+        {
+            x.stepCtx = true;
+            x.stepCtxName = a_name;
+            x.stepA = a_a;
+            x.stepB = a_b;
+        }
+        ~StepCtxScope()
+        {
+            x.stepCtx = on0;
+            x.stepCtxName = name0;
+            x.stepA = a0;
+            x.stepB = b0;
+        }
+        StepCtxScope(const StepCtxScope&) = delete;
+        StepCtxScope& operator=(const StepCtxScope&) = delete;
+    };
+
     // 1.5.0 her body along a straight piece a -> b (both on the floor; a_zMid = the floor at its middle): 0 clear; 1 blocked on
     // her centre line (a standing actor's disc, the knee, the chest, the two diagonals 16 <-> 112 u; with a_midHead the headroom
     // at the middle); 2 blocked only BESIDE her - C5 the knee rays at +-rc along the piece; (review R1 #3) the CLEARANCE probes:
@@ -2018,18 +2270,29 @@ namespace {
     // or a bench running PARALLEL to her line closer than rc (a ray along it never would); with a_columns C6 the side columns
     // at the middle - such a step may be retried aside (C11). 10-13 rays. (The line test casts its side columns every ~32 u
     // itself, after the piece's centre rays.) The rays beside her pass only a door her centre line passed (R1 #1).
-    int XBody(Job& j, RE::bhkWorld* a_bw, const RE::NiPoint3& a_a, const RE::NiPoint3& a_b, float a_zMid, bool a_midHead, bool a_columns = true)
+    // (2.0.4 fix B) a_zFoot: the higher floor under the step (its two floor samples / the piece's two ends; NaN = a_zMid) - the
+    // middle headroom ray starts over it (HeadBlocked); a_zMid stays the floor the clearance is measured from.
+    int XBody(Job& j, RE::bhkWorld* a_bw, const RE::NiPoint3& a_a, const RE::NiPoint3& a_b, float a_zMid, bool a_midHead, bool a_columns = true,
+              float a_zFoot = std::numeric_limits<float>::quiet_NaN())
     {
         ExState&    x = *j.x;
         const float s = j.scale;
         const float knee = kKnee * s, chest = kChest * s, lo = kSweepLow * s, hi = kSweepHigh * s;
-        if (CrossesActorDisc(x, a_a, a_b)) return 1;
-        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + knee }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + knee }, j.xs.rO)) return 1;
-        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + chest }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + chest }, j.xs.rO)) return 1;
-        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + lo }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + hi }, j.xs.rO)) return 1;
-        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + hi }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + lo }, j.xs.rO)) return 1;
+        const auto  why = [&](int a_why, int a_ret) {     // (2.0.3) the rule that refused, for the step breakdown
+            x.stepWhy = a_why;
+            return a_ret;
+        };
+        const RayWhatScope rw(x);                          // (2.0.4) each ray's rule, for a cast-exhaustion line
+        if (CrossesActorDisc(x, a_a, a_b)) return why(kSwDisc, 1);
+        x.rayWhat = kStepWhyName[kSwKnee];
+        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + knee }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + knee }, j.xs.rO)) return why(kSwKnee, 1);
+        x.rayWhat = kStepWhyName[kSwChest];
+        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + chest }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + chest }, j.xs.rO)) return why(kSwChest, 1);
+        x.rayWhat = kStepWhyName[kSwDiag];
+        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + lo }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + hi }, j.xs.rO)) return why(kSwDiag, 1);
+        if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x, a_a.y, a_a.z + hi }, RE::NiPoint3{ a_b.x, a_b.y, a_b.z + lo }, j.xs.rO)) return why(kSwDiag, 1);
         const float mx = (a_a.x + a_b.x) * 0.5f, my = (a_a.y + a_b.y) * 0.5f;
-        if (a_midHead && HeadBlocked(j, a_bw, mx, my, a_zMid, "on her line")) return 1;
+        if (a_midHead && HeadBlocked(j, a_bw, mx, my, a_zMid, "on her line", a_zFoot)) return why(kSwHead, 1);
         const float dx = a_b.x - a_a.x, dy = a_b.y - a_a.y;
         const float len = std::sqrt(dx * dx + dy * dy);
         if (len < 1.f) return 0;                    // no direction: nothing "beside" her to test
@@ -2039,24 +2302,28 @@ namespace {
         x.doorSide = true;
         int side = 0;
         x.besideSide = 0;                           // (1.6.0 §4 #7) which side blocked: its side-steps go the other way
+        x.rayWhat = kStepWhyName[kSwSideKnee];
         for (const float sg : { 1.f, -1.f }) {
             if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_a.x + sg * px, a_a.y + sg * py, a_a.z + knee },
                             RE::NiPoint3{ a_b.x + sg * px, a_b.y + sg * py, a_b.z + knee }, j.xs.rO)) {
                 side = 2;
                 x.besideSide = sg > 0.f ? 1 : -1;
+                x.stepWhy = kSwSideKnee;
                 break;
             }
         }
+        x.rayWhat = kStepWhyName[kSwClear];
         for (int k = 0; k < 4 && side == 0; ++k) {     // the clearance probes: knee / chest x left / right
             const float h = (k < 2 ? knee : chest), sg = (k % 2) == 0 ? 1.f : -1.f;
             if (XRayBlocked(j, a_bw, RE::NiPoint3{ mx, my, mz + h }, RE::NiPoint3{ mx + sg * px, my + sg * py, mz + h }, j.xs.rO)) {
                 side = 2;
                 x.besideSide = sg > 0.f ? 1 : -1;
+                x.stepWhy = kSwClear;
             }
         }
         x.doorSide = side0;
         if (side) return side;
-        if (a_columns && XSideColumns(j, a_bw, mx, my, a_zMid, dx / len, dy / len)) return 2;
+        if (a_columns && XSideColumns(j, a_bw, mx, my, a_zMid, dx / len, dy / len)) return why(kSwColumns, 2);
         return 0;
     }
 
@@ -2104,7 +2371,9 @@ namespace {
         x.doorPeek = true;
         x.terrSide = a_terr;                      // (1.5.1) the hillside beside a terrain cell is no wall
         x.stairSide = a_stair;                    // (1.6.0) nor the stair's own face beside a stair cell
-        bool clear = true;
+        bool               clear = true;
+        const RayWhatScope rw(x);                 // (2.0.4) a cast-exhaustion line names the test
+        x.rayWhat = "a cell's own clearance probe (knee height, out to rc)";
         for (const auto& d : kSides) {
             if (XRayBlocked(j, a_bw, RE::NiPoint3{ a_x, a_y, a_z + knee }, RE::NiPoint3{ a_x + d[0] * x.rc, a_y + d[1] * x.rc, a_z + knee }, j.xs.rO)) {
                 clear = false;
@@ -2134,6 +2403,7 @@ namespace {
         const float terrRise = a_terr ? (std::max)(x.riserT, TerrainRise(x.rc)) : x.riser;
         const float sRise = a_stair ? (std::max)(x.riser, StairRise(x.rc)) : x.riser;
         const float tRise = (std::max)(terrRise, sRise);
+        x.stepWhy = kSwBrink;                     // (2.0.3) the rule of any refusal below
         for (const float sg : { 1.f, -1.f }) {
             const FloorHit h = XFloorRay(j, a_bw, mx + sg * px, my + sg * py, a_zMid + tRise + kXTopPad, a_zMid - tRise - 1.f, j.xs.rS);
             const int      side = sg > 0.f ? 1 : -1;
@@ -2172,8 +2442,10 @@ namespace {
 
     // (1.6.0 §5) a sample steeper than 0.70 that is not terrain passes on the STAIR ALLOWANCE (a fixed floor, n.z >= 0.66) when the
     // navmesh lies under it (one navmesh question, only for such a sample): x.stairUsed
+    // (2.0.4) a_zHi (may be null): the higher of the two floor samples (fix B: the middle headroom ray starts over it); a sample
+    // refused as too steep is logged (at most kVHitLogMax a plan): its n.z, layer, reference and the navmesh under it
     bool XProfile(Job& j, RE::Actor* a_w, RE::bhkWorld* a_bw, const RE::NiPoint3& a_p, const RE::NiPoint3& a_m, float a_lim, float& a_zMid,
-                  bool a_terr = false)
+                  bool a_terr = false, float* a_zHi = nullptr)
     {
         ExState&    x = *j.x;
         float       zPrev = a_p.z, z1 = a_p.z;
@@ -2183,22 +2455,39 @@ namespace {
             const float    t = static_cast<float>(k) / 3.f;
             const float    sx = a_p.x + (a_m.x - a_p.x) * t, sy = a_p.y + (a_m.y - a_p.y) * t;
             const FloorHit h = XFloorRay(j, a_bw, sx, sy, zPrev + x.riser + kXTopPad, zPrev - x.riser - kXTopPad, j.xs.rM);
+            x.stepWhy = kSwProfFloor;             // (2.0.3) the rule of a refusal below (set before each test)
             if (h.blocked || !h.found) return false;
             const bool  terr = a_terr && IsTerrainLayer(h.layer);
             const float rise = std::fabs(h.z - zPrev);
+            x.stepWhy = kSwProfRise;
             if (rise > x.riser) {
                 if (!(terr && prevTerr && rise <= tRise)) return false;
                 x.terrUsed = true;
             }
+            x.stepWhy = kSwProfSlope;
             if (h.nz < kXMinNz) {
                 if (terr && h.nz >= kVTerrainNz) {
                     x.terrUsed = true;
                 } else if (StairSlope(h.nz, h.layer) && NavUnder(j, a_w, sx, sy, h.z)) {
                     x.stairUsed = true;           // (1.6.0) the stair allowance
                 } else {
+                    if (x.hitLogN[kSwProfSlope] < kVHitLogMax) {     // (2.0.4) the hit line (its own questions: the line only)
+                        ++x.hitLogN[kSwProfSlope];
+                        const bool        nav = NavUnder(j, a_w, sx, sy, h.z);
+                        const std::string refN = HitRefNote(j, a_bw, RE::NiPoint3{ sx, sy, h.z }, RE::NiPoint3{ 0.f, 0.f, -1.f }, h.layer);
+                        logger::info("PATH {} HIT {}: step ({:.0f},{:.0f},{:.0f})->({:.0f},{:.0f},{:.0f}), sample {} of 2 at ({:.0f},{:.0f},{:.0f}): "
+                                     "floor n.z {:.2f} (a floor needs {:.2f}), layer {}, {}; navmesh under it: {}; stair allowance: {}; terrain "
+                                     "allowance: {}",
+                                     PlanTag(j), kStepWhyName[kSwProfSlope], a_p.x, a_p.y, a_p.z, a_m.x, a_m.y, a_m.z, k, sx, sy, h.z, h.nz, kXMinNz,
+                                     h.layer, refN, nav ? "yes" : "no", StairNoNote(h.nz, h.layer, nav),
+                                     !a_terr ? "no (not a terrain step on the navmesh)" :
+                                     !IsTerrainLayer(h.layer) ? "no (layer not terrain / ground)" :
+                                                                std::format("no (n.z under {:.2f})", kVTerrainNz));
+                    }
                     return false;
                 }
             }
+            x.stepWhy = kSwProfPlan;
             if (IsBadSpot(j, sx, sy, h.z)) {
                 x.planFail = true;
                 return false;
@@ -2220,7 +2509,9 @@ namespace {
             prevTerr = terr;
         }
         a_zMid = (z1 + zPrev) * 0.5f;
+        if (a_zHi) *a_zHi = (std::max)(z1, zPrev);     // (2.0.4 fix B)
         const float endRise = std::fabs(a_m.z - zPrev);
+        x.stepWhy = kSwProfEnd;
         if (endRise <= x.riser) return true;
         if (!(a_terr && prevTerr && endRise <= tRise)) return false;
         x.terrUsed = true;
@@ -2284,6 +2575,7 @@ namespace {
     // 1.5.0 her body numbers (after MeasureH): C1 riser = 26 u x scale for s > 1 (never under 24) - also every "one step"
     // rule (x.step); C5 rc = collisionBound.extents.x + 4; C7 (review R1 #2) Htop = the TOP of her own controller bound
     // (collisionBound.center.z + extents.z) + 2 u - a top outside 0.6-1.6 H is not trusted: then H + 2. Main thread.
+    // (2.0.4) that top x her scale (the controller bound is unscaled); rc and the riser are unchanged.
     // (1.5.1, spec §4 + the session's decision on review fix #2) TWO risers: x.riser = 1.5.0's (26 u x scale for s > 1, never
     // under 24) on EVERY floor - STATIC, furniture, clutter, anything off the navmesh: a 30 u bench or a 31 u chair seat is never
     // a step - and also every "one step" rule (x.step: the navmesh-on-this-floor tolerance, so a bench top never counts as on the
@@ -2298,10 +2590,20 @@ namespace {
         x.riserT = x.riserCone > 0.f ? (std::max)(x.riser, std::clamp(kVConeFrac * x.riserCone, kVRiserMin, kVRiserMax)) : x.riser;
         x.step = x.riser;
         x.rc = j.radius + kVClearPad;
-        x.htopFromBound = j.boundTop >= 0.6f * x.H && j.boundTop <= 1.6f * x.H;
-        x.htop = (x.htopFromBound ? j.boundTop : x.H) + kVHeadPad;
+        x.boundTopS = j.boundTop * j.scale;      // (2.0.4) the bound is unscaled: x her scale (0 = not read: not trusted)
+        x.htopFromBound = x.boundTopS >= 0.6f * x.H && x.boundTopS <= 1.6f * x.H;
+        x.htop = (x.htopFromBound ? x.boundTopS : x.H) + kVHeadPad;
         j.riserUsed = x.riser;
         j.riserTUsed = x.riserT;
+    }
+
+    // (2.0.4) the headroom and where it came from, for the log lines: "headroom 124 u (bound 131.5 x scale 0.93 + 2)"
+    std::string HeadNote(const Job& j, const ExState& x)
+    {
+        if (x.htopFromBound) return std::format("headroom {:.0f} u (bound {:.1f} x scale {:.2f} + {:.0f})", x.htop, j.boundTop, j.scale, kVHeadPad);
+        if (j.boundTop <= 0.f) return std::format("headroom {:.0f} u (H {:.0f} + {:.0f}: her bound top not read)", x.htop, x.H, kVHeadPad);
+        return std::format("headroom {:.0f} u (H {:.0f} + {:.0f}: the bound {:.1f} x scale {:.2f} = {:.1f} u not trusted, outside 0.6-1.6 H)", x.htop,
+                           x.H, kVHeadPad, j.boundTop, j.scale, x.boundTopS);
     }
 
     // 1.5.1 (g_mtx held) a cone read now is remembered for her; a failed read (0 / out of 8-120 u / not a humanoid hull) takes her
@@ -2442,10 +2744,9 @@ namespace {
         }
         logger::info("PATH CALIBRATION {:08X} (once per game run, read only): GetHeight {:.1f} u, scale {:.2f} (controller {:.2f}), "
                      "collisionBound centre ({:.1f},{:.1f},{:.1f}) half-extents ({:.1f},{:.1f},{:.1f}) u | {} | {} | the planner uses: {}, "
-                     "clearance {:.0f} u, headroom {:.0f} u ({}), slope {:.2f} / stand {:.2f}; terrain on the navmesh {:.2f}, rise <= h x tan 63 + {:.0f} u",
+                     "clearance {:.0f} u, {}, slope {:.2f} / stand {:.2f}; terrain on the navmesh {:.2f}, rise <= h x tan 63 + {:.0f} u",
                      j.walker, x.Hraw, a_w->GetScale(), cc->scale, cb.center.x, cb.center.y, cb.center.z, cb.extents.x, cb.extents.y,
-                     cb.extents.z, hull, ctl, RiserNote(j, x), x.rc, x.htop,
-                     x.htopFromBound ? "her bound top + 2" : "H + 2: the bound top not trusted", kXMinNz, kXStandNz, kVTerrainNz, kVTerrainPad);
+                     cb.extents.z, hull, ctl, RiserNote(j, x), x.rc, HeadNote(j, x), kXMinNz, kXStandNz, kVTerrainNz, kVTerrainPad);
     }
 
     // The pull's free first test (no questions): every 16 u sample of a -> b lies in a cell the search already classified
@@ -2770,7 +3071,21 @@ namespace {
                 const bool terrSide0 = x.terrSide, stairSide0 = x.stairSide;
                 x.terrSide = pieceSide;
                 x.stairSide = s.pieceStair;       // (1.6.0) a stair piece: the stair's own face beside her is no wall
-                const int body = XBody(j, a_bw, s.pieceA, q, (s.pieceA.z + q.z) * 0.5f, true, false);
+                // (2.0.4 fix B) the middle headroom ray starts over the HIGHER of the piece's two ends; its clearance is still
+                // measured from their average (the middle floor, as before)
+                const float zMidP = (s.pieceA.z + q.z) * 0.5f, zHiP = (std::max)(s.pieceA.z, q.z);
+                int         body = 0;
+                {
+                    const StepCtxScope  ctx(x, "the line test's piece", s.pieceA, q);    // (2.0.4) for the hit lines
+                    const std::uint32_t hitSeq0 = x.hit.seq;
+                    body = XBody(j, a_bw, s.pieceA, q, zMidP, true, false, zHiP);
+                    // (2.0.4) the line test's headroom refusal: what its ray met (at most kVHitLogMax a plan; a cast exhaustion
+                    // has its own line)
+                    if (body == 1 && x.stepWhy == kSwHead && x.hit.seq != hitSeq0 && !x.hit.exhausted && x.lineHeadLogN < kVHitLogMax) {
+                        ++x.lineHeadLogN;
+                        LogRayHit(j, a_bw, kSwHead, s.pieceA, q, zMidP, zHiP);
+                    }
+                }
                 x.terrSide = terrSide0;
                 x.stairSide = stairSide0;
                 if (body != 0) {
@@ -3773,6 +4088,15 @@ namespace {
                 m.navStair = true;                  // (1.6.0 §5) only the stair allowance keeps it (the navmesh is on THIS floor)
                 ++j.xs.stairCells;
             } else {
+                if (x.steepCellLogN < kVHitLogMax) {     // (2.0.4, BiSR letter 41) the steep cell's hit line (log only)
+                    ++x.steepCellLogN;
+                    const std::string refN = HitRefNote(j, a_bw, RE::NiPoint3{ m.x, m.y, f.z }, RE::NiPoint3{ 0.f, 0.f, -1.f }, f.layer);
+                    logger::info("PATH {} HIT steep cell: from ({:.0f},{:.0f},{:.0f}) the cell ({:.0f},{:.0f},{:.0f}): floor n.z {:.2f} (a floor needs "
+                                 "{:.2f}), layer {}, {} ({}); navmesh on this floor: {}; stair allowance: {}; terrain allowance: {}",
+                                 PlanTag(j), a_n.x, a_n.y, a_n.z, m.x, m.y, f.z, f.nz, kXMinNz, f.layer, refN,
+                                 f.fresh ? "cast now" : "the kept answer", m.onNav ? "yes" : "no", StairNoNote(f.nz, f.layer, m.onNav),
+                                 !m.navTerr ? "no (not terrain / ground on the navmesh)" : std::format("no (n.z under {:.2f})", kVTerrainNz));
+                }
                 none(kWhySteep);
                 return;
             }
@@ -3824,19 +4148,41 @@ namespace {
     {
         ExState& x = *j.x;
         float    zMid = 0.f;
+        float    zHi = std::numeric_limits<float>::quiet_NaN();     // (2.0.4 fix B) the higher of the two floor samples
         x.stairUsed = false;
-        if (!XProfile(j, a_w, a_bw, a_p, a_m, a_lim, zMid, a_terr)) return 1;
+        x.stepWhy = kSwNone;
+        const StepCtxScope  ctx(x, "the step", a_p, a_m);           // (2.0.4) for the hit lines
+        const std::uint32_t hitSeq0 = x.hit.seq;
+        // (2.0.3) a refusal is counted by its rule; the first 4 keep their two ends (printed on a NO ROUTE)
+        const auto refused = [&](int a_ret) {
+            const int w = (x.stepWhy > kSwNone && x.stepWhy < kSwCount) ? x.stepWhy : kSwNone;
+            ++j.xs.stepFails[static_cast<std::size_t>(w)];
+            if (j.xs.stepSampleN < 4) {
+                ++j.xs.stepSampleN;
+                j.xs.stepSamples += std::format("{}({:.0f},{:.0f},{:.0f})->({:.0f},{:.0f},{:.0f}): {}", j.xs.stepSampleN > 1 ? "; " : "", a_p.x, a_p.y,
+                                                a_p.z, a_m.x, a_m.y, a_m.z, kStepWhyName[w]);
+            }
+            // (2.0.4, BiSR letter 41) what the refusing body ray met - its own ray of this test (seq), not a cast exhaustion (that
+            // has its own line), at most kVHitLogMax lines per rule a plan (log lines only: the refusal itself is unchanged)
+            if ((w == kSwKnee || w == kSwSideKnee || w == kSwDiag || w == kSwHead) && x.hit.seq != hitSeq0 && !x.hit.exhausted &&
+                x.hitLogN[static_cast<std::size_t>(w)] < kVHitLogMax) {
+                ++x.hitLogN[static_cast<std::size_t>(w)];
+                LogRayHit(j, a_bw, w, a_p, a_m, zMid, zHi);
+            }
+            return a_ret;
+        };
+        if (!XProfile(j, a_w, a_bw, a_p, a_m, a_lim, zMid, a_terr, &zHi)) return refused(1);
         const bool stair = a_stair || x.stairUsed;
         const bool terrSide0 = x.terrSide, stairSide0 = x.stairSide;
         x.terrSide = a_terr;                      // (1.5.1) the rays beside her step over the hillside of a terrain step
         x.stairSide = stair;                      // (1.6.0) ... and over a stair's own sloped face on a stair step
-        const int  body = XBody(j, a_bw, a_p, a_m, zMid, true);
+        const int  body = XBody(j, a_bw, a_p, a_m, zMid, true, true, zHi);
         x.terrSide = terrSide0;
         x.stairSide = stairSide0;
-        if (body != 0) return body;
+        if (body != 0) return refused(body);
         const bool brinkOk = XBrinkClear(j, a_bw, a_p, a_m, zMid, a_terr, stair);
         if (stair) x.stairUsed = true;
-        return brinkOk ? 0 : 2;
+        return brinkOk ? 0 : refused(2);
     }
 
     // 1.5.1 the cell cache's keys: a cell (its lattice square, its floor to 0.25 u, her size class, its terrain flag) and a step
@@ -4511,6 +4857,12 @@ namespace {
             CacheBegin(j, a_w, x);
             x.wade = (j.xflags & kWadeSpot) != 0u;
             if (x.wade) {
+                // (2.0.3) the user's depth rule: tier 1 up to min(her cap, 0.45 H); tier 2 (only if tier 1 finds nothing) up to
+                // min(her cap, 0.60 H) - XSearchNoWay
+                x.deepCap = (std::min)(x.depthCap, kWadeDeepMaxFrac * x.H);
+                x.depthCap = (std::min)(x.depthCap, kWadeThighMaxFrac * x.H);
+                x.tier1Cap = x.depthCap;
+                j.depthCap = x.depthCap;
                 const float mf = std::clamp(j.wadeMinFrac > 0.f ? j.wadeMinFrac : 0.15f, kXDepthFracMin, j.depthFrac);
                 x.wadeMin = (std::min)(x.depthCap, (std::max)(kXWet + 0.5f, mf * x.H));
                 x.wadeNbrMin = (std::max)(kXWet, kVWadeNbrFrac * x.H);
@@ -4519,9 +4871,9 @@ namespace {
                 x.wadeKnee = std::clamp(j.wadeKneeFrac, 0.f, 1.f) * x.H;
                 x.wadeThigh = std::clamp(j.wadeThighFrac, 0.f, 1.f) * x.H;
             }
-            v15note = std::format(" | 1.5.0 rules (flags{}{}{}{}): {}, clearance {:.0f} u, headroom {:.0f} u ({}){}", (j.xflags & kNavGuide) ? " NAVGUIDE" : "",
+            v15note = std::format(" | 1.5.0 rules (flags{}{}{}{}): {}, clearance {:.0f} u, {}{}", (j.xflags & kNavGuide) ? " NAVGUIDE" : "",
                                   x.wade ? " WADE" : "", (j.xflags & kDoors) ? " DOORS" : "", (j.xflags & kActorsKeepOut) ? " ACTORS" : "",
-                                  RiserNote(j, x), x.rc, x.htop, x.htopFromBound ? "her bound top + 2" : "H + 2",
+                                  RiserNote(j, x), x.rc, HeadNote(j, x),
                                   x.wade ? std::format(", wade depth {:.0f}-{:.0f} u, patch >= {} of 8 at >= {:.0f} u; 1.6.0 bands: knee {:.0f} u, thigh "
                                                        "{:.0f}-{:.0f} u, scans {}",
                                                        x.wadeMin, x.depthCap, x.wadePatchMin, x.wadeNbrMin, x.wadeKnee, x.wadeThigh, x.depthCap,
@@ -4529,6 +4881,12 @@ namespace {
                                                            std::format("within {:.0f} u ({:.1f} body lengths)", j.wadeScanBodies * x.H, j.wadeScanBodies) :
                                                            std::string("off (the cap is under knee depth, or none asked)")) :
                                            std::string());
+            if (x.wade) {
+                v15note += x.deepCap > x.tier1Cap + 0.5f ?
+                               std::format("; the deep-water rule (up to 0.60 H): nothing near thigh within {:.0f} u -> up to {:.0f} u ({:.2f} H), the spot nearest thigh",
+                                           x.tier1Cap, x.deepCap, x.deepCap / (std::max)(1.f, x.H)) :
+                               std::format("; no deeper tier (her cap {:.0f} u is the 0.45 H thigh max or under it)", x.tier1Cap);
+            }
             v15note += std::format(" | 1.5.1: terrain on the navmesh n.z >= {:.2f}, rise <= h x tan 63 + {:.0f} u; range {:.0f} u; cell cache {} ({} kept answer(s))",
                                    kVTerrainNz, kVTerrainPad, kVMaxDistance, x.cacheOn ? "on" : "off (no physics world)", g_cache.Size());
             v15note += std::format(" | 1.6.0: stair allowance n.z >= {:.2f} (a fixed floor with the navmesh under it); stand spots {:.2f} ({:.2f} on "
@@ -4559,17 +4917,48 @@ namespace {
         return acti && acti->waterForm;
     }
 
-    bool Footprint(RE::TESObjectREFR* a_ref, WaterFP& a_fp)
+    bool Footprint(RE::TESObjectREFR* a_ref, WaterFP& a_fp, std::uint32_t a_handle = 0)
     {
         auto* base = a_ref ? a_ref->GetBaseObject() : nullptr;
         if (!base) return false;
         const float sc = a_ref->GetScale();
         const auto& bd = base->boundData;
-        a_fp.hx = (std::max)(8.f, static_cast<float>(bd.boundMax.x - bd.boundMin.x) * 0.5f * sc);
-        a_fp.hy = (std::max)(8.f, static_cast<float>(bd.boundMax.y - bd.boundMin.y) * 0.5f * sc);
+        const float obx = static_cast<float>(bd.boundMax.x - bd.boundMin.x) * 0.5f * sc;
+        const float oby = static_cast<float>(bd.boundMax.y - bd.boundMin.y) * 0.5f * sc;
         const float ang = a_ref->GetAngleZ();
         a_fp.c = std::cos(ang);
         a_fp.s = std::sin(ang);
+        // (2.0.3 STAIR POOL - BiSR letter 40, JK's High Hrothgar bath FE207DDB: its base's object bounds are EMPTY, so the footprint
+        // shrank to the 16 x 16 u minimum at the reference's origin: "water there none" at the seed, 0 water cells, WATER SEEN 0,
+        // O 24.) As Water Finder 1.6.4: empty bounds -> the size from the LOADED 3D (a water plane is a flat square centred on the
+        // reference: half side = the world bound's radius / sqrt 2, scale included; the surface = the reference's z). No 3D -> the
+        // old minimum. Logged once per reference per game run. Main thread (the plan's slice).
+        if (obx < 8.f && oby < 8.f) {
+            const auto* obj = a_ref->Get3D();
+            const float r = obj ? obj->worldBound.radius : 0.f;
+            static std::mutex                     s_m;
+            static std::unordered_set<std::uint64_t> s_seen;
+            const bool                            measured = r > 16.f && std::isfinite(r);
+            bool                                  first = false;
+            {
+                std::scoped_lock lk(s_m);
+                first = s_seen.insert((static_cast<std::uint64_t>(a_ref->GetFormID()) << 1) | (measured ? 1u : 0u)).second;
+            }
+            if (measured) {
+                a_fp.hx = a_fp.hy = r * 0.70710678f;
+                a_fp.cx = obj->worldBound.center.x;
+                a_fp.cy = obj->worldBound.center.y;
+                a_fp.surf = a_ref->GetPosition().z;
+            }
+            if (first) {
+                logger::info("PATH #{} water: placed water {:08X} - its base's object bounds are EMPTY: {} ({:.0f} x {:.0f} u, surface z {:.0f})",
+                             a_handle, a_ref->GetFormID(), measured ? "the footprint is measured from its loaded 3D" : "its 3D is not loaded: the 16 x 16 u minimum",
+                             measured ? a_fp.hx * 2.f : 16.f, measured ? a_fp.hy * 2.f : 16.f, a_ref->GetPosition().z);
+            }
+            if (measured) return true;
+        }
+        a_fp.hx = (std::max)(8.f, obx);
+        a_fp.hy = (std::max)(8.f, oby);
         const float lx = static_cast<float>(bd.boundMin.x + bd.boundMax.x) * 0.5f * sc;
         const float ly = static_cast<float>(bd.boundMin.y + bd.boundMax.y) * 0.5f * sc;
         const auto  p = a_ref->GetPosition();
@@ -4615,9 +5004,27 @@ namespace {
                 const float e = acc->collisionBound.extents.x;
                 if (e > 4.f && e < 96.f) ar = e;
             }
-            float r = ar + x.rc + kVActorPad;
-            r = (std::min)(r, Dist2D(j.start, p) - 1.f);
-            r = (std::min)(r, Dist2D(x.asked, p) - 1.f);
+            // (2.0.1 START-IN-DISC - BiSR 11-08 10:04: a test follower stood in a rock nook ~a disc's edge from Auri after a wash; the disc,
+            // clamped to 1 u short of her start, refused every step with any part toward Auri, and the nook's other ways were rock and
+            // deep water: six NO ROUTEs, "a standing actor (kept out) at 0 u") a disc whose full radius reaches her START (or the goal)
+            // keeps her out only DEEPER than that point: radius = her distance - 8 u, never inside body contact (his radius + hers)
+            // unless she already stands that close (then her distance - 1 u: never deeper than she is). The same disc serves the
+            // corridor legs, the full / local ray search cells and steps, the stand-spot tests and the skeleton's costs.
+            const float rFull = ar + x.rc + kVActorPad;
+            const float contact = ar + j.radius;
+            const auto  endRadius = [&](float a_d) { return (std::max)(a_d - kVDiscEndMargin, (std::min)(contact, a_d - 1.f)); };
+            const float dS = Dist2D(j.start, p), dG = Dist2D(x.asked, p);
+            float       r = rFull;
+            r = (std::min)(r, endRadius(dS));
+            const bool  forStart = r < rFull;
+            r = (std::min)(r, endRadius(dG));
+            const bool  forGoal = r < rFull && !forStart;
+            if (forStart || forGoal) {
+                logger::info("PATH #{} actors: disc {:08X} relaxed for {} - she {} {:.0f} u from it (its full radius {:.0f} u, body contact {:.0f} u): "
+                             "kept out only within {:.0f} u{}",
+                             j.handle, id, forStart ? "her start" : "the goal", forStart ? "starts" : "ends", forStart ? dS : dG, rFull, contact, r,
+                             r < j.radius ? " - below her own radius: not kept out at all" : "");
+            }
             if (r < j.radius) return;
             ExState::Disc d;
             d.x = p.x;
@@ -4693,7 +5100,7 @@ namespace {
         const float                            abx = b.x - a.x, aby = b.y - a.y, ab2 = abx * abx + aby * aby;
         for (auto* ref : found) {
             WaterFP fp;
-            if (!Footprint(ref, fp)) continue;
+            if (!Footprint(ref, fp, j.handle)) continue;
             const float rr = std::hypot(fp.hx, fp.hy);
             if (fp.cx + rr < bx0 || fp.cx - rr > bx1 || fp.cy + rr < by0 || fp.cy - rr > by1) continue;
             const float t = ab2 > 1e-4f ? std::clamp(((fp.cx - a.x) * abx + (fp.cy - a.y) * aby) / ab2, 0.f, 1.f) : 0.f;
@@ -5837,6 +6244,21 @@ namespace {
                                     std::format("the nearest thigh-deep spot ({:.0f}-{:.0f} u)", (std::max)(x.wadeThigh, r.depth + 0.5f), x.depthCap));
     }
 
+    // (2.0.3) how far a depth lies from THIGH (the band wadeThigh .. tier1Cap = 0.38-0.45 H is 0): the user's "nearest to thigh"
+    float ThighGap(const ExState& x, float a_d) { return a_d < x.wadeThigh ? x.wadeThigh - a_d : a_d > x.tier1Cap ? a_d - x.tier1Cap : 0.f; }
+
+    // (2.0.3) which tier the wade spot came from, for the wade: text ("thigh found" / the deep-water rule (up to 0.60 H))
+    std::string WadeTierNote(const ExState& x, float a_d)
+    {
+        if (x.deepTier && a_d > x.tier1Cap + 0.01f) {
+            return std::format("nothing near thigh - accepted {:.0f} u = {:.2f} H (the deep-water rule (up to 0.60 H), cap {:.0f} u): ", a_d, a_d / (std::max)(1.f, x.H),
+                               x.deepCap);
+        }
+        if (a_d >= x.wadeThigh) return std::format("thigh found ({:.2f} H){}: ", a_d / (std::max)(1.f, x.H), x.deepTier ? " on the 0.60 rule's second search" : "");
+        return std::format("nearest to thigh within {:.0f} u ({:.2f} H){}: ", x.tier1Cap, a_d / (std::max)(1.f, x.H),
+                           x.deepTier ? ", on the 0.60 rule's second search" : "");
+    }
+
     // 1.6.0 §6.3 the wade plan's ONE route: start -> E (the prefix) [-> K (scan 1's chain)] [-> the final spot (the last scan's
     // chain)]; only the final spot is the goal / the wading spot - E and K are ordinary points (no intermediate end, no stop).
     // a_tail: the last scan's chain (its root first; empty = the final spot is the end of what is already joined).
@@ -5863,7 +6285,8 @@ namespace {
         j.wadeStage = a_stage;
         j.wadeEntryDepth = x.wadeEntryDepth;
         const PCell& ent = x.wadePrefix.back();
-        j.xs.wade = std::format("entry ({:.0f},{:.0f},{:.0f}) {:.0f} u deep (patch {}) {}; final ({:.0f},{:.0f},{:.0f}) {:.0f} u deep, patch {} of 8, {:.0f} u "
+        j.xs.wade = WadeTierNote(x, a_depth);     // (2.0.3)
+        j.xs.wade += std::format("entry ({:.0f},{:.0f},{:.0f}) {:.0f} u deep (patch {}) {}; final ({:.0f},{:.0f},{:.0f}) {:.0f} u deep, patch {} of 8, {:.0f} u "
                                 "from the seed - ONE route of {} cell(s); {} water cell(s) checked - {} too shallow, {} without the patch, {} not a "
                                 "place to stand",
                                 ent.pos.x, ent.pos.y, ent.pos.z, x.wadeEntryDepth, x.wadeEntryPatch,
@@ -5891,6 +6314,18 @@ namespace {
     void XWadeScanHit(Job& j, std::int32_t a_i, float a_depth, int a_patch)
     {
         ExState& x = *j.x;
+        // (2.0.3) tier 2: a spot deeper than the 0.45 H thigh max never ends the scan - the shallowest is kept, a spot nearer thigh
+        // may still come (XWadeScanEnd decides)
+        if (x.deepTier && a_depth > x.tier1Cap + 0.01f) {
+            if (x.altIdx == -1 || a_depth < x.altDepth) {
+                x.altIdx = a_i;
+                x.altDepth = a_depth;
+                x.altPatch = a_patch;
+                x.altStage = x.wadeStage;
+                x.altChain = XChain(x, a_i);
+            }
+            return;
+        }
         if (a_depth >= x.wadeThigh) {
             j.xs.scans += std::format("{}scan {}: thigh {:.0f} u at {:.0f} u", j.xs.scans.empty() ? "" : "; ", x.wadeStage, a_depth,
                                       Dist2D(XPos(x.nodes[static_cast<std::size_t>(a_i)]), RE::NiPoint3{ x.scanRX, x.scanRY, 0.f }));
@@ -5922,13 +6357,27 @@ namespace {
             XWadeScanBegin(j, x.scanKnee, 2);
             return;
         }
+        // (2.0.3) tier 2: the kept deeper spot wins when it lies nearer thigh than what the scans would answer (the knee spot / the entry)
+        const auto altWins = [&](float a_other) {
+            if (!x.deepTier || x.altIdx == -1 || ThighGap(x, x.altDepth) >= ThighGap(x, a_other)) return false;
+            j.xs.scans += std::format("; the 0.60 rule: {:.0f} u is nearer thigh than {:.0f} u", x.altDepth, a_other);
+            if (x.altIdx == -2) {
+                XWadeAssemble(j, {}, x.altDepth, x.altPatch, 0);      // the entry itself
+            } else {
+                if (x.altStage == 2) x.wadeKneeDepthUsed = x.scanKneeDepth;
+                XWadeAssemble(j, x.altChain, x.altDepth, x.altPatch, x.altStage);
+            }
+            return true;
+        };
         if (x.wadeStage == 2 || (x.wadeStage == 1 && x.scanKnee >= 0)) {
             if (x.wadeStage == 2) j.xs.scans += "; scan 2: nothing thigh-deep";
+            if (altWins(x.scanKneeDepth)) return;
             x.wadeKneeDepthUsed = x.scanKneeDepth;
             XWadeAssemble(j, {}, x.scanKneeDepth, x.scanKneePatch, 1);
             return;
         }
         j.xs.scans += std::format("{}scan 1: nothing knee-deep", j.xs.scans.empty() ? "" : "; ");
+        if (x.altIdx != -2 && altWins(x.wadeEntryDepth)) return;
         XWadeAssemble(j, {}, x.wadeEntryDepth, x.wadeEntryPatch, 0);
     }
 
@@ -5949,7 +6398,17 @@ namespace {
         x.wadeEntryDepth = a_depth;
         x.wadeEntryPatch = a_patch;
         j.wadeEntryDepth = a_depth;
-        if (j.wadeScanBodies > 0.f && x.depthCap >= x.wadeKnee && a_depth < x.wadeThigh) {
+        // (2.0.3) tier 2: an entry deeper than the 0.45 H thigh max is kept as the answer so far, and scan 1 still looks round it for a
+        // spot nearer thigh (the shallowest deeper one, or one in the thigh band)
+        const bool deepEntry = x.deepTier && a_depth > x.tier1Cap + 0.01f;
+        if (deepEntry) {
+            x.altIdx = -2;
+            x.altDepth = a_depth;
+            x.altPatch = a_patch;
+            x.altStage = 0;
+            x.altChain.clear();
+        }
+        if (j.wadeScanBodies > 0.f && x.depthCap >= x.wadeKnee && (a_depth < x.wadeThigh || deepEntry)) {
             x.wadePrefix = x.cells;
             x.wadeChain1.clear();
             x.scanKnee = -1;
@@ -5957,7 +6416,8 @@ namespace {
             XWadeScanBegin(j, a_i, 1);
             return;
         }
-        j.xs.wade = std::format("the first reachable wading spot ({:.0f},{:.0f},{:.0f}): {:.0f} u deep, patch {} of 8, {:.0f} u from the seed; "
+        j.xs.wade = WadeTierNote(x, a_depth);     // (2.0.3)
+        j.xs.wade += std::format("the first reachable wading spot ({:.0f},{:.0f},{:.0f}): {:.0f} u deep, patch {} of 8, {:.0f} u from the seed; "
                                 "{} water cell(s) checked - {} too shallow, {} without the patch, {} not a place to stand",
                                 e.pos.x, e.pos.y, e.pos.z, a_depth, a_patch, Dist2D(e.pos, x.asked), x.wadeTested + x.wadeShallow + x.wadePatchFail,
                                 x.wadeShallow, x.wadePatchFail, x.wadeStandFail);
@@ -6040,6 +6500,26 @@ namespace {
                                      x.edgeCells > 0 ? "the grid is the box: no wider pass" : "no cell at the box's edge: a wider box cannot help");
         }
         if (x.wade) {
+            // (2.0.3) the user's depth rule: nothing reachable near thigh (tier 1, <= 0.45 H) -> the same search once more with the
+            // cap at min(her cap, 0.60 H); its spot nearest to thigh depth wins (XWadeScanHit / XWadeScanEnd / XWadeFound)
+            if (!x.deepTier && x.deepCap > x.tier1Cap + 0.5f) {
+                x.deepTier = true;
+                logger::info("PATH #{} wade: nothing near thigh - no reachable wading spot {:.0f}-{:.0f} u ({}; {} water cell(s) checked - {} too "
+                             "shallow, {} without the patch, {} not a place to stand): the deep-water rule (up to 0.60 H) - the search runs again for water up "
+                             "to {:.0f} u ({:.2f} H), the spot nearest to thigh depth wins",
+                             j.handle, x.wadeMin, x.tier1Cap, a_why, x.wadeTested + x.wadeShallow + x.wadePatchFail, x.wadeShallow, x.wadePatchFail,
+                             x.wadeStandFail, x.deepCap, x.deepCap / (std::max)(1.f, x.H));
+                x.depthCap = x.deepCap;
+                j.depthCap = x.deepCap;
+                x.altIdx = -1;
+                x.altChain.clear();
+                x.goal.pos = x.asked;             // the box and the aim from the seed again (a flood may have moved the aim)
+                x.pass = 1;
+                x.local = false;
+                x.xphase = kXGrid;
+                x.yield = true;
+                return;
+            }
             j.wadeNone = true;
             j.xs.wade = std::format("none: {} water cell(s) checked - {} too shallow, {} without a patch of {} / 8, {} not a place to stand{}",
                                     x.wadeTested + x.wadeShallow + x.wadePatchFail, x.wadeShallow, x.wadePatchFail, x.wadePatchMin, x.wadeStandFail,
@@ -7364,11 +7844,11 @@ namespace {
                             j.expansions, j.rejected, j.goalMovedBy, j.slices, j.usTotal / 1000.0, j.usMax / 1000.0);
         if (x.v15) {
             // 1.5.0: the body numbers, the passes, the floors per square, the nudges, the doors, the actors, the MIX, the wade
-            line += std::format(" | 1.5.0: riser {:.0f} u, clearance {:.0f} u, headroom {:.0f} u; {} pass(es){}; {} extra floor level(s){}; {} of {} "
+            line += std::format(" | 1.5.0: riser {:.0f} u, clearance {:.0f} u, {}; {} pass(es){}; {} extra floor level(s){}; {} of {} "
                                 "nudge(s) fitted ({} refused at the jog / the walked line); {} cell(s) with a wall or a lip within {:.0f} u ({} of them "
                                 "nowhere 8-16 u aside: tight); {} headroom refusal(s); {} door(s) passable; {} standing actor(s) kept out ({} cell(s)), "
                                 "{} moving; rays +{} side-column, +{} nudge, +{} corridor",
-                                x.riser, x.rc, x.htop, j.xs.passes, j.xs.pass2.empty() ? std::string() : " (pass 2 after: " + j.xs.pass2 + ")",
+                                x.riser, x.rc, HeadNote(j, x), j.xs.passes, j.xs.pass2.empty() ? std::string() : " (pass 2 after: " + j.xs.pass2 + ")",
                                 j.xs.levelsExtra, j.xs.levelFull ? std::format(" ({} square(s) had no room left)", j.xs.levelFull) : std::string(), j.xs.nudged,
                                 j.xs.nudgeTries, j.xs.jogFails, j.xs.lipFails, x.rc, why[kWhyTight], j.xs.headFails, j.xs.doorsPassed, j.xs.actorsKept,
                                 why[kWhyActor], j.xs.actorsMoving, j.xs.rK, j.xs.rN, j.xs.rG);
@@ -7396,6 +7876,15 @@ namespace {
                                                              j.xs.ringMarch ? " - then the 1.5.1 march" : "") :
                                                  std::string());
             if (j.xs.nudgeFlips) line += std::format("; {} side-step(s) tried the other side too", j.xs.nudgeFlips);
+            // (2.0.3) which rule refused the search's steps - always counted, printed when the plan found no full route
+            if (j.status == 0 || j.status == 3) {
+                std::string rules;
+                for (int w = 0; w < kSwCount; ++w) {
+                    const int cnt = j.xs.stepFails[static_cast<std::size_t>(w)];
+                    if (cnt > 0) rules += std::format("{}{} {}", rules.empty() ? "" : ", ", cnt, kStepWhyName[w]);
+                }
+                if (!rules.empty()) line += std::format(" | steps refused by: {} (first: {})", rules, j.xs.stepSamples);
+            }
             if (j.chunked) {
                 line += std::format("; CHUNK {} of the skeleton: {} point(s) taken, {:.0f} u left after it", j.chunkFinal ? "(the last)" : "(more follow)",
                                     j.skelTaken, j.remainAfterU);

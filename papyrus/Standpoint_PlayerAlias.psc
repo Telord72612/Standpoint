@@ -1,14 +1,14 @@
 Scriptname Standpoint_PlayerAlias extends ReferenceAlias
-{ Standpoint driver (v2.0.0; the slot engine dates from v0.4.0). Lives on alias 0 (player) of Standpoint_Quest so it is
-  permanently bound (the WFTest lesson: never drive from a fire-and-forget magic effect).
+{ Standpoint driver (v2.0.3; the slot engine dates from v0.4.0). Lives on alias 0 (player) of Standpoint_Quest so it is
+  permanently bound (measured in an earlier test mod: never drive from a fire-and-forget magic effect).
 
-  S3 SLOT ENGINE: 4 concurrent walker sessions. Slot i uses marker alias (i+1) and its
+  SLOT ENGINE: 4 concurrent walker sessions. Slot i uses marker alias (i+1) and its
   own TravelAndUseIdle clone package. Public surface = StandpointAPI.psc; consumers
   never touch this script directly.
 
-  Also carries the S1 park-and-face measurement test (legacy, shares slot 0's alias)
-  and the S2 spell harness (walker select + relation cycling), now routed through the
-  slot engine. Do not run the S1 test while API sessions are active. }
+  Also carries the park-and-face measurement test (legacy, shares slot 0's alias)
+  and the test-spell harness (walker select + relation cycling), now routed through the
+  slot engine. Do not run the measurement test while API sessions are active. }
 
 ; ---- slot engine state (4 slots; slot i <-> alias i+1) ----
 Actor[] slotWalker
@@ -45,13 +45,13 @@ Int[] slotClose            ; 1 = close contact: a stall near her target is her a
 Float[] slotStallX         ; where she stood when she last moved 4 u ...
 Float[] slotStallY
 Float[] slotStallT         ; ... and when (the stall clock)
-; ---- v0.9.3 close contact, second round (report 05 §12 / §13) ----
+; ---- v0.9.3 close contact, second round ----
 Bool[] slotSeenOurs        ; OUR package has been seen running (whatever its procedure): the stall clock runs from that poll
 Int[] slotPairH            ; v0.9.4: the handle of the pair "ignore each other" rule this slot's session holds in the DLL (Standpoint.PairArm); 0 = none
 Float[] slotArrivalBusy    ; v0.9.4: = slotStart[i] while ONE stack runs the arrival handling of that session (a second stack skips it)
 Bool[] slotHasMoved        ; v0.9.5: she has moved 4 u from where the first our-package poll found her (the stall rule: 3 s still once moved, 8 s if never)
 Bool[] slotFreeing         ; v0.9.5: FreeSession(i) is running right now - SameSession answers False meanwhile
-; ---- v0.9.7 step back and around; v0.9.8 no glide, real stops (the user's rulings of 2026-10-10; report 05 §15-§17) ----
+; ---- v0.9.7 step back and around; v0.9.8 no glide, real stops (2026-10-10) ----
 Int[] slotRoute            ; 0 = no stop on the way: she walks to the ASKED point under the normal arrival rules; she is walking to a STOP first: 1 = her step back, 2 = a point on the way around, 3 = the approach point
 Int[] slotRouteLegs        ; how many stops this session has been sent to (a loop guard: at most 6)
 Float[] slotFinX           ; the ASKED point and heading, kept while slotX / slotY / slotZ / slotFaceDeg hold a waypoint
@@ -63,13 +63,13 @@ Int[] slotRetry            ; v0.9.8: 1 = the ONE second walk in of this session 
 Int[] slotRouteFails       ; v0.9.9: how many legs on the way round (around / approach) have FAILED in this session (blocked, or she stood still); the second one = NO WAY (O 17)
 Int[] slotBlockPolls       ; v0.9.9: how many polls in a row found the engine's "movement blocked" (run-once type 36) with her not moving; 2 = blocked
 Bool[] slotRouteOk         ; v0.9.8: a close session with an NPC target: slotFin* and slotFaceRef are set, stops and a second walk in are possible
-; ---- v1.2.0 the BiSR letter (report 11, 2026-10-30) ----
+; ---- v1.2.0 the fixes from a consumer's VR test (2026-10-30) ----
 Float[] slotLastPollT      ; when this session was last polled - a gap over 5 s = the game was paused (a menu, the VR dashboard)
 Float[] slotPausedT        ; paused time inside this session: the 90 s limit does not count it
 Float[] slotLastPX         ; where she stood at the last poll (the player-contact rule: a walker who is still moving is not blocked)
 Float[] slotLastPY
 Int[] slotLegKicks         ; v1.3.0: how far a leg that has not STARTED was kicked: 0 none, 1 package evaluated again, 2 sent once more
-; ---- v1.3.0 THE DETOUR (the user's waypoint plan, 2026-10-30): a blocked leg gets a planned way round (PathPlanner.cpp) ----
+; ---- v1.3.0 THE DETOUR (2026-10-30): a blocked leg gets a planned way round (PathPlanner.cpp) ----
 Int[] slotPathH            ; the planner's handle while it plans (0 = none)
 Int[] slotDetour           ; 0 none, 1 planning, 2 walking the way round
 Int[] slotDetourTries      ; ways round started in this session (at most 2)
@@ -87,17 +87,17 @@ Float[] slotDefFace
 ; ---- v1.5.1 THE FAR PHASE of a walk (a WalkTo / WalkToWater / RequestWalk beyond 30 m: the engine's travel, watched by the DLL) ----
 Int[] slotFar              ; the walk whose far session this is (0 = an ordinary session); the DLL ends it (ApiFarEnd)
                            ; (1.6.0: the far phase is removed from the walks - the DLL never starts one: dormant)
-; ---- v1.6.0 THE STEERED SESSION (report "1.6.0 Plan" S1 §2-§3; SteerSession.cpp) and BUG 1 ----
+; ---- v1.6.0 THE STEERED SESSION (SteerSession.cpp) and BUG 1 ----
 Int[] slotSteer            ; the DLL's steer id: > 0 a steered session, -1 starting (SteerBegin has not asked the DLL yet), 0 an engine session
 Int[] slotSteerHold        ; after a steered arrival: 1 pinned by the package (the engine's hold), 2 held by the walk's own stand
 Int[] slotSteerWait        ; the wait already reported for this episode (1 a grab, 2 combat), 0 none
 Int[] slotSteerOld         ; a steered START in progress (slotSteer -1) replaces this live steered session of hers (0 none): the DLL
                            ; supersedes it at SteerStart; a release before that stops it (FreeSession), so none is ever orphaned
-Int[] slotSteerPhase       ; the DLL's phase at the last poll (FIX ROUND R1 #9: the contact rule waits while she plans / waits)
-Int[] slotSteerKind        ; v1.6.1 (review R1 § VERIFY N1): the steered session's kind - 1 the clock (RequestMove), 2 GoTo, 3 a POINT; 0 none
-Int[] slotEngineLeg        ; v1.6.1 (C4): this session walks ONE engine leg after a steered try (EngineFallback) - 1 no route, 2 she sat,
-                           ; 3 no route and the POINT is off the navmesh: the leg goes to its nearest navmesh point (FIX-UP C4a-2); 0 none
-Float[] slotEngAskX        ; v1.6.1 FIX-UP (C4a-2): the asked point of an engine leg 3 - its arrival is measured to it (ArrivalTail)
+Int[] slotSteerPhase       ; the DLL's phase at the last poll (1.6.0: the contact rule waits while she plans / waits)
+Int[] slotSteerKind        ; v1.6.1: the steered session's kind - 1 the clock (RequestMove), 2 GoTo, 3 a POINT; 0 none
+Int[] slotEngineLeg        ; v1.6.1: this session walks ONE engine leg after a steered try (EngineFallback) - 1 no route, 2 she sat,
+                           ; 3 no route and the POINT is off the navmesh: the leg goes to its nearest navmesh point (1.6.1); 0 none
+Float[] slotEngAskX        ; v1.6.1: the asked point of an engine leg 3 - its arrival is measured to it (ArrivalTail)
 Float[] slotEngAskY
 Float[] slotSteerLimit     ; the backstop time limit of a steered session, s (the walk's own limit answers first)
 ObjectReference[] slotAnchor ; BUG 1: the reference the slot's marker is placed relative to (a relative session's target); None = the walker
@@ -105,7 +105,7 @@ Bool avoidProbed = False   ; Tier 3 Phase A2 fires once per game session
 Bool engineReady = False
 Bool saAvailable = False
 
-; ---- S1 legacy test state ----
+; ---- the legacy measurement test's state ----
 Actor targetNpc = None
 ObjectReference marker = None
 Package parkPkg = None
@@ -121,7 +121,7 @@ Float savedAvoid = -1.0
 Int Property CyclesPhase1 = 10 AutoReadOnly
 Int Property CyclesPhase2 = 6 AutoReadOnly
 
-; ---- S2 spell-harness state ----
+; ---- the test-spell harness state ----
 ; wade: the scripted last-wet-step after a shore arrival (navmesh ends at the
 ; waterline - the WF consumer rule: package to the SHORE, glide the rest)
 Bool s2WadePending = False
@@ -143,9 +143,9 @@ EndEvent
 Function Setup()
     parkPkg = Game.GetFormFromFile(0x803, "Standpoint.esp") as Package
 
-    ; ---- v1.6.0 BUG 2 (report "1.6.0 Plan" S1 §5): THE ORPHAN CURE, before anything is reset. No session survives a load (the
+    ; ---- v1.6.0 BUG 2: THE ORPHAN CURE, before anything is reset. No session survives a load (the
     ; DLL answers its open requests X 12), but a package override does - PapyrusUtil keeps it in the save - and so does a marker
-    ; alias: after a load an NPC could walk on to an old session's marker with no owner (handover 33 M8 / H7). The four marker
+    ; alias: after a load an NPC could walk on to an old session's marker with no owner. The four marker
     ; aliases are cleared and every override of the four slot packages is removed, on every actor.
     Package setupPkg1 = Game.GetFormFromFile(0x80A, "Standpoint.esp") as Package
     Package setupPkg2 = Game.GetFormFromFile(0x80B, "Standpoint.esp") as Package
@@ -254,7 +254,7 @@ Function Setup()
     slotPkg[3] = setupPkg3
     engineReady = slotPkg[0] && slotPkg[1] && slotPkg[2] && slotPkg[3]
 
-    ; v1.2.0 (the user, 2026-10-30: "remove the test spells"): the four developer test spells (Park Test 0x805, Slot
+    ; v1.2.0 (2026-10-30): the four developer test spells (Park Test 0x805, Slot
     ; Test 0x807, Send Pointed 0x809, Send to Water 0x80E) are no longer given to the player - Standpoint ships inside
     ; other mods now - and a player who has them from an older version loses them here. The records stay in the ESP
     ; (unused); the console test `stpt` is the test tool.
@@ -266,11 +266,11 @@ Function Setup()
     saAvailable = Game.GetModByName("SeverActions.esp") != 255
     ; v1.2.0: no longer listens to SeverActions' travel event. Standpoint has started no SeverActions journey since 0.9.1,
     ; the handler only logged, and SeverActions sends FOUR values to a three-value handler - the VM refused every call
-    ; with an argument-count error in the Papyrus log (report 11 §5). A registration kept in an older save is removed.
+    ; with an argument-count error in the Papyrus log. A registration kept in an older save is removed.
     UnregisterForModEvent("SeverActions_TravelComplete")
     ApiTestListen(False)            ; v1.6.0: the stpm test's ear is off after every load (a registration is kept in the save)
     Bool setupSteered = Standpoint.SteerSupported()
-    Standpoint.Log("driver v2.0.0 ready (engine=" + engineReady + " sa=" + saAvailable + " steered=" + setupSteered + ")")
+    Standpoint.Log("driver v2.0.3 ready (engine=" + engineReady + " sa=" + saAvailable + " steered=" + setupSteered + ")")
     ; v1.6.0 BUG 2: the markers older Standpoints left in this save are COUNTED (one MARKERS: line; deleted only with
     ; Standpoint.ini [Cleanup] SweepMarkers = 1). The slot markers kept above are never counted as litter.
     ObjectReference[] setupKeep = new ObjectReference[8]
@@ -286,7 +286,7 @@ EndFunction
 ; =========================== THE SLOT ENGINE ================================
 
 Int Function ApiGoTo(Actor akWalker, ObjectReference akTarget, Int aiRelation, Float afStandoff, Float afHoldSeconds = -1.0, Int aiPose = 0, Int aiInterrupts = 1, Int aiDanger = 2, Float afLeash = 3500.0)
-    ; v1.6.0 (report "1.6.0 Plan" S1 §2; spec D item 4): Skyrim VR with [Session] Steered = 1 - THE STEERED SESSION. The DLL
+    ; v1.6.0: Skyrim VR with [Session] Steered = 1 - THE STEERED SESSION. The DLL
     ; solves the spot by physics (the solver's own candidates: furniture entries, box sides, the actor's sides), plans ONE route
     ; and walks her there with Standpoint's own steering; this slot keeps the whole contract (IsBusy, the events, the hold, the
     ; pose, Release). A target the steered walk cannot reach (another interior / worldspace) keeps the engine session below.
@@ -330,9 +330,9 @@ Bool Function ApiSetFaceTarget(Actor akWalker, ObjectReference akFace)
 EndFunction
 
 Int Function ApiGoToPoint(Actor akWalker, Float afX, Float afY, Float afZ, Float afHeadingDeg, Float afHoldSeconds = -1.0, Int aiInterrupts = 1, Int aiDanger = 2, Float afLeash = 3500.0)
-    ; v1.6.0 (S1 §3; spec D item 5 - the user said yes): a POINT session is walked steered too, on the same switch. Her legs keep
+    ; v1.6.0: a POINT session is walked steered too, on the same switch. Her legs keep
     ; "a point that is no place to stand moves toward her" and the 100 u strayed rule; no route (e.g. behind a load door) = ONE
-    ; engine leg (the user's rule). interrupts 0 + a hand-grab / combat = the session waits and walks on afterwards.
+    ; engine leg (by design). interrupts 0 + a hand-grab / combat = the session waits and walks on afterwards.
     If SteeredOn() && akWalker
         Bool ptSteer = Standpoint.SteerCheck(akWalker, None, afX, afY, afZ)
         If ptSteer
@@ -348,7 +348,7 @@ Int Function ApiGoToPoint(Actor akWalker, Float afX, Float afY, Float afZ, Float
     Return h
 EndFunction
 
-; ====================== v1.6.0: THE STEERED SESSION (driver side; report "1.6.0 Plan" S1 §2.0-§2.9, §3) ======================
+; ====================== v1.6.0: THE STEERED SESSION (driver side) ======================
 ; The consumer's door is unchanged (GoTo / GoToPoint / RequestMove). The driver keeps the SLOT and the whole contract: IsBusy,
 ; GetArrivalState, the three per-walker events, ApiReport + the measured result line, Release, hold -1 / 0 / N, the poses, the
 ; pair rule, leash / interrupts / danger (PollSlot, unchanged). The session's legs are NOT the travel package any more: the DLL
@@ -358,7 +358,7 @@ EndFunction
 ;   arrived  -> THE PIN: the marker moved to her feet with the final heading, the alias, the package on, her stand ended quietly
 ;               (SteerHandOff), then the existing arrival tail (Standpoint_Arrived, ApiReport C, the pose, the hold). Off the
 ;               navmesh with pose 0 the walk's own stand keeps her instead; hold 0 + pose 0 = she was let go at the point.
-;   ended    -> the letter -> Failed / Interrupted + ApiReport + FreeSession (S1 §2.7); F = ONE engine leg to the solved spot.
+;   ended    -> the letter -> Failed / Interrupted + ApiReport + FreeSession; F = ONE engine leg to the solved spot.
 ; SE / AE, and [Session] Steered = 0: the engine session exactly as before (the switch is the VR rollback without a rebuild).
 
 ; True = sessions are walked steered here (Skyrim VR - or SE / AE with the walk on - and Standpoint.ini [Session] Steered = 1)
@@ -394,7 +394,7 @@ Int Function GoToSteered(Actor akWalker, ObjectReference akTarget, Int aiRelatio
     If gsActor
         slotFaceRef[i] = akTarget          ; (an actor target is whom she faces if she ends short - as the engine path)
     EndIf
-    slotSteerKind[i] = 2                   ; v1.6.1 (N1): GoTo
+    slotSteerKind[i] = 2                   ; v1.6.1: GoTo
     Float[] gsAsk = new Float[7]
     gsAsk[0] = 2.0                         ; kind 2: GoTo (a relation)
     gsAsk[1] = afHoldSeconds
@@ -418,7 +418,7 @@ Int Function GoToPointSteered(Actor akWalker, Float afX, Float afY, Float afZ, F
     slotInterrupts[i] = aiInterrupts
     slotDanger[i] = aiDanger
     slotLeash[i] = afLeash
-    slotSteerKind[i] = 3                   ; v1.6.1 (N1): a POINT - off the navmesh the walk's own stand keeps her (SteerArrive)
+    slotSteerKind[i] = 3                   ; v1.6.1: a POINT - off the navmesh the walk's own stand keeps her (SteerArrive)
     Float[] gpAsk = new Float[9]
     gpAsk[0] = 3.0                         ; kind 3: GoToPoint
     gpAsk[1] = afHoldSeconds
@@ -434,7 +434,7 @@ Int Function GoToPointSteered(Actor akWalker, Float afX, Float afY, Float afZ, F
 EndFunction
 
 ; ApiRunRequest's steered branch (kind 1: the clock - a C++ RequestMove line or Papyrus RequestMove). The pair rule is armed
-; BEFORE the DLL is asked (S1 §2.4: it bites only for bodies that start to overlap after it is armed).
+; BEFORE the DLL is asked (it bites only for bodies that start to overlap after it is armed).
 Function RunSteered(Int aiId, Actor w, ObjectReference t, Float[] v, Int aiClose)
     Int pose = v[3] as Int
     Bool plain = False
@@ -470,7 +470,7 @@ Function RunSteered(Int aiId, Actor w, ObjectReference t, Float[] v, Int aiClose
     slotFaceOffset[i] = v[2] * 30.0        ; ... plus the asked orientation (degrees, clockwise)
     slotApiId[i] = aiId
     slotClose[i] = aiClose
-    slotSteerKind[i] = 1                   ; v1.6.1 (N1): the clock
+    slotSteerKind[i] = 1                   ; v1.6.1: the clock
     Standpoint.Log("session " + i + " answers move request #" + aiId + " (steered; asked " + v[0] + " cm at hour " + v[1] + ", orientation " + v[2] + ", pose " + pose + ", hold " + hold + " s, close " + aiClose + ")")
     If aiClose == 1
         PairArmFor(i, w, t, runStamp)
@@ -501,7 +501,7 @@ Bool Function SteerBegin(Int i, Actor akW, Float afStamp, ObjectReference akTarg
         Return False
     EndIf
     If sid <= 0
-        ; FIX ROUND (review R1 BLOCKER 2): a GoTo / GoToPoint caller already holds h > 0 - it is told the session ended (Failed 1)
+        ; 1.6.0: a GoTo / GoToPoint caller already holds h > 0 - it is told the session ended (Failed 1)
         Standpoint.Log("session " + i + ": the DLL refused the steered session - answered B 11 (Failed 1), released")
         SendFailed(akW, 1.0)
         ApiReport(i, "B", 11)
@@ -519,7 +519,7 @@ EndFunction
 Function SteerPoll(Int i, Actor w, Float afNow)
     Int sid = slotSteer[i]
     If sid < 0
-        slotSteerPhase[i] = 0              ; (starting = planning: the contact rule waits - FIX ROUND R1 #9)
+        slotSteerPhase[i] = 0              ; (starting = planning: the contact rule waits - 1.6.0)
         SteerBackstop(i, w, afNow)         ; (SteerBegin has not asked the DLL yet)
         Return
     EndIf
@@ -529,7 +529,7 @@ Function SteerPoll(Int i, Actor w, Float afNow)
     EndIf
     If slotFreeing
         If slotFreeing[i]
-            Return                         ; (FIX ROUND R1 NIT 12: a release in flight sends its own event - no second one)
+            Return                         ; (1.6.0: a release in flight sends its own event - no second one)
         EndIf
     EndIf
     If st.Length < 19
@@ -538,7 +538,7 @@ Function SteerPoll(Int i, Actor w, Float afNow)
         Return
     EndIf
     Int stPhase = st[0] as Int
-    slotSteerPhase[i] = stPhase            ; (FIX ROUND R1 #9: the contact rule reads it - no P 7 while planning or waiting)
+    slotSteerPhase[i] = stPhase            ; (1.6.0: the contact rule reads it - no P 7 while planning or waiting)
     If st[18] > 0.5
         ; the solved spot is the session's point from now on (the danger scan, the strayed rule, DistToSlot, the log)
         slotX[i] = st[8]
@@ -552,13 +552,13 @@ Function SteerPoll(Int i, Actor w, Float afNow)
             slotSteerWait[i] = why
             If why == 1
                 ; interrupts 0 (or the player as target) + a hand-grab: the session waits and walks on when the hand lets go
-                ; (S1 §2.7, D5) - reported, not ended
+                ; - reported, not ended
                 Standpoint.Log("  s" + i + " STEER #" + sid + " WAITS: the player's hand holds her - she walks on when it lets go (Interrupted 3, report only)")
                 SendInterrupted(w, 3.0)
             ElseIf why == 2
                 Standpoint.Log("  s" + i + " STEER #" + sid + " WAITS: she is in combat - she walks on when it is over (interrupts " + slotInterrupts[i] + ")")
             Else
-                ; FIX ROUND (R1 #8): a reaction (ragdoll / knocked / kill move) is waited out like combat, as 1.5.1's package did
+                ; 1.6.0: a reaction (ragdoll / knocked / kill move) is waited out like combat, as 1.5.1's package did
                 Standpoint.Log("  s" + i + " STEER #" + sid + " WAITS: a reaction (ragdoll / knocked / kill move) - she walks on when it is over")
             EndIf
         EndIf
@@ -570,7 +570,7 @@ Function SteerPoll(Int i, Actor w, Float afNow)
         slotSteerWait[i] = 0
     EndIf
     If stPhase == 3 || stPhase == 7
-        SteerArrive(i, w, sid, st, afNow)  ; (7 = she arrived, her stand ended before the pin: still an arrival - FIX ROUND R1 NIT 14)
+        SteerArrive(i, w, sid, st, afNow)  ; (7 = she arrived, her stand ended before the pin: still an arrival - 1.6.0)
         Return
     EndIf
     If stPhase == 4
@@ -581,7 +581,7 @@ Function SteerPoll(Int i, Actor w, Float afNow)
 EndFunction
 
 ; The backstop: the walk's own limit (90 s; beyond 30 m 90 s + d / 150 u/s) answers O 2 first; this catches a session that the
-; DLL never ended (S1 §2.7: PollSlot's own 90 s -> a backstop only). A paused game is not counted.
+; DLL never ended (PollSlot's own 90 s -> a backstop only). A paused game is not counted.
 Function SteerBackstop(Int i, Actor w, Float afNow)
     If afNow - slotStart[i] - slotPausedT[i] > slotSteerLimit[i]
         Standpoint.Log("  s" + i + " TIMEOUT (steered, the backstop " + (slotSteerLimit[i] as Int) + " s) at " + PosText(w))
@@ -591,11 +591,11 @@ Function SteerBackstop(Int i, Actor w, Float afNow)
     EndIf
 EndFunction
 
-; A steered session has ended without an arrival (S1 §2.7): the letter -> the walker's event + the request's answer, then freed.
+; A steered session has ended without an arrival: the letter -> the walker's event + the request's answer, then freed.
 Function SteerEnd(Int i, Actor w, Int sid, Float[] st)
     If slotFreeing
         If slotFreeing[i]
-            Return                         ; (FIX ROUND R1 NIT 12: a release is already freeing her - it sends its own event)
+            Return                         ; (1.6.0: a release is already freeing her - it sends its own event)
         EndIf
     EndIf
     Int code = st[1] as Int
@@ -606,8 +606,8 @@ Function SteerEnd(Int i, Actor w, Int sid, Float[] st)
     EndIf
     String letter = LetterOf(code)
     Standpoint.Log("  s" + i + " STEER #" + sid + " ENDED " + letter + " " + detail + " - " + (st[3] as Int) + " u from the spot at " + PosText(w))
-    ; FIX ROUND (review R1 BLOCKER 2): while the slot is active, EVERY ending without an arrival sends ONE event - a GoTo /
-    ; GoToPoint caller (BiSR's MoveToWater, VRCD) listens for nothing else. The move request's letter is unchanged.
+    ; 1.6.0: while the slot is active, EVERY ending without an arrival sends ONE event - a GoTo /
+    ; GoToPoint caller may listen for nothing else. The move request's letter is unchanged.
     If letter == "O"
         If detail == 1
             SendFailed(w, 1.0)             ; no standable spot
@@ -622,7 +622,7 @@ Function SteerEnd(Int i, Actor w, Int sid, Float[] st)
         SendInterrupted(w, 3.0)            ; a hand-grab (interrupts 1-2, not toward the player)
     ElseIf slotActive[i]
         SendFailed(w, 3.0)                 ; X (any: released, replaced, her gate - mounted, bleedout, an animation lock ...), B, H:
-                                           ; "ended without an arrival" (BiSR maps it to EndSeek; X 6 keeps its meaning on MoveResult)
+                                           ; "ended without an arrival" (X 6 keeps its meaning on MoveResult)
     EndIf
     If code == 9
         letter = "X"                       ; (H - kept for safety: a stand that ended is answered X 14, as before)
@@ -632,9 +632,9 @@ Function SteerEnd(Int i, Actor w, Int sid, Float[] st)
     FreeSession(i)
 EndFunction
 
-; The planner found no way (S1 §2.8; the user's rule, spec D §0): ONE engine leg to the solved spot - this slot becomes a plain
-; engine session from here (its own arrival rules, stall rule and - FIX ROUND - its own fresh 90 s). Not for a close request with no
-; route (the DLL answers O 17 then) - but FIX ROUND (review R1 BLOCKER 1): ALSO when she SITS (a chair, a bench, a bed, getting up:
+; The planner found no way (by design): ONE engine leg to the solved spot - this slot becomes a plain
+; engine session from here (its own arrival rules, stall rule and - since 1.6.0 - its own fresh 90 s). Not for a close request with no
+; route (the DLL answers O 17 then) - but (1.6.0) ALSO when she SITS (a chair, a bench, a bed, getting up:
 ; detail 14), for every kind, close contact too - the steered walk cannot take a sitting NPC; the game's walk stands her up and walks her.
 Function EngineFallback(Int i, Actor w, Int sid, Float[] st)
     Float efStamp = slotStart[i]
@@ -655,10 +655,10 @@ Function EngineFallback(Int i, Actor w, Int sid, Float[] st)
     ElseIf detail == 26
         efWhy = "the spot is outside the loaded area"
     ElseIf detail == 14
-        efWhy = "she sits - the game's walk stands her up"     ; (FIX ROUND R1 BLOCKER 1: a chair, a bench, a bed, getting up)
+        efWhy = "she sits - the game's walk stands her up"     ; (1.6.0: a chair, a bench, a bed, getting up)
     EndIf
-    ; v1.6.1 FIX-UP (C4a-2, review R1 § VERIFY 1.6.1): a POINT off the navmesh with no route - the DLL names its NEAREST NAVMESH POINT
-    ; ([19] 1, [20..22]): the leg goes there (BiSR's shore point on a rock / in the water: she ends at the shore edge) and its arrival is
+    ; v1.6.1: a POINT off the navmesh with no route - the DLL names its NEAREST NAVMESH POINT
+    ; ([19] 1, [20..22]): the leg goes there (a shore point on a rock / in the water: she ends at the shore edge) and its arrival is
     ; measured to the asked point (ArrivalTail: a SHORT arrival)
     Bool efNav = False
     Float efLegX = efX
@@ -684,7 +684,7 @@ Function EngineFallback(Int i, Actor w, Int sid, Float[] st)
     slotSteerHold[i] = 0
     slotSteerWait[i] = 0
     slotSteerPhase[i] = 2
-    ; v1.6.1 (C4; run R3 §3 / §7): the leg is marked - PollSlot ends it when it does not get on (MOVEMENT BLOCKED, or 6 s still) instead
+    ; v1.6.1: the leg is marked - PollSlot ends it when it does not get on (MOVEMENT BLOCKED, or 6 s still) instead
     ; of the 90 s; after NO ROUTE no way round is planned for it (the steered planner has just found none); a sitting walker's leg
     ; keeps its two
     If detail == 14
@@ -693,12 +693,12 @@ Function EngineFallback(Int i, Actor w, Int sid, Float[] st)
         slotEngineLeg[i] = 1
         slotDetourTries[i] = 2
         If efNav
-            slotEngineLeg[i] = 3           ; (FIX-UP C4a-2: to the nearest navmesh point - the arrival is measured to the asked point)
+            slotEngineLeg[i] = 3           ; (1.6.1: to the nearest navmesh point - the arrival is measured to the asked point)
             slotEngAskX[i] = efX
             slotEngAskY[i] = efY
         EndIf
     EndIf
-    ; FIX ROUND (R1 NIT 13): the ONE engine leg gets its own 90 s (the steered try's time is not counted against it) - the session's
+    ; 1.6.0: the ONE engine leg gets its own 90 s (the steered try's time is not counted against it) - the session's
     ; stamp stays (SameSession), the paused-time account absorbs what has passed
     slotPausedT[i] = Utility.GetCurrentRealTime() - slotStart[i]
     Bool efPlain = slotFinPlain[i]
@@ -709,7 +709,7 @@ Function EngineFallback(Int i, Actor w, Int sid, Float[] st)
     RouteSend(i, w, efStamp, efLegX, efLegY, efLegZ, efFace, 0)
 EndFunction
 
-; A steered arrival (phase 3). S1 §2.5: THE PIN by default; the walk's own stand off the navmesh with pose 0; hold 0 + pose 0:
+; A steered arrival (phase 3). THE PIN by default; the walk's own stand off the navmesh with pose 0; hold 0 + pose 0:
 ; she was let go at the point. Then the arrival tail every session shares.
 Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
     Float stamp = slotStart[i]
@@ -726,8 +726,8 @@ Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
     Float wantDeg = st[11]
     Bool released = st[16] > 0.5
     Bool onNav = st[13] > 0.5
-    Bool standEnded = (st[0] as Int) == 7  ; (FIX ROUND R1 NIT 14: she arrived but her stand ended before the pin - still an arrival)
-    ; a face target (GoToPoint + SetFaceTarget, VRCD) and she stopped SHORT: toward it (+ the request's orientation), as the
+    Bool standEnded = (st[0] as Int) == 7  ; (1.6.0: she arrived but her stand ended before the pin - still an arrival)
+    ; a face target (GoToPoint + SetFaceTarget) and she stopped SHORT: toward it (+ the request's orientation), as the
     ; engine path turns a short walker
     If isShort
         ObjectReference fr = slotFaceRef[i]
@@ -749,11 +749,11 @@ Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
         ArrivalTail(i, w, d, angR, isShort, stamp, afNow, " (steered STEER #" + sid + ": let go at the point - hold 0)")
         Return
     EndIf
-    ; FIX ROUND (R1 NIT 15): "no pose" = the PLAIN marker of the request (pose 0) and no interaction pose - slotPose holds only 2 / 3,
+    ; 1.6.0: "no pose" = the PLAIN marker of the request (pose 0) and no interaction pose - slotPose holds only 2 / 3,
     ; so a RequestMove pose 1 (the standard wait) off the navmesh is pinned with its wait idle like everywhere else
     Bool noPose = slotPlain[i] && slotPose[i] == 0
-    ; v1.6.1 (review R1 § VERIFY N1): a steered POINT (GoToPoint) has no pose either - off the navmesh (BiSR's shore on a rock, in
-    ; the water) the walk's own stand keeps her, never a travel package aimed at a marker off the navmesh (S1 §2.5)
+    ; v1.6.1: a steered POINT (GoToPoint) has no pose either - off the navmesh (a shore on a rock, in
+    ; the water) the walk's own stand keeps her, never a travel package aimed at a marker off the navmesh
     If slotSteerKind[i] == 3
         noPose = True
     EndIf
@@ -769,13 +769,13 @@ Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
             Return
         EndIf
         ; off the navmesh (water, rock) with no pose: the walk's own stand keeps her (VR-proven: the bathhouse hold) - a travel
-        ; package aimed at a marker off the navmesh is untested (S1 §2.5)
+        ; package aimed at a marker off the navmesh is untested
         slotSteerHold[i] = 2
         Float angS = NormAng180(w.GetAngleZ() - wantDeg)
         ArrivalTail(i, w, d, angS, isShort, stamp, afNow, " (steered STEER #" + sid + ": held by the walk's stand - off the navmesh)")
         Return
     EndIf
-    ; THE PIN (S1 §2.5): the proven short-arrival re-anchor - the marker at her feet with the final heading, the alias, our
+    ; THE PIN: the proven short-arrival re-anchor - the marker at her feet with the final heading, the alias, our
     ; package on; then her stand ends quietly and the package holds her (a pose or her own AI never walks her off)
     Bool pinPlain = slotPlain[i]
     ObjectReference mk = EnsureMarker(i, w, pinPlain)
@@ -799,7 +799,7 @@ Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
     If pa
         pa.ForceRefTo(mk)
     EndIf
-    ; FIX ROUND (review R1 #3): ForceRefTo yields - a release on another stack (a grab / leash / danger rule, a consumer's Release)
+    ; 1.6.0: ForceRefTo yields - a release on another stack (a grab / leash / danger rule, a consumer's Release)
     ; must not be followed by our package override on a freed NPC
     If !SameSession(i, w, stamp)
         Standpoint.Log("  s" + i + " arrival handling abandoned - the session changed while it waited")
@@ -808,8 +808,8 @@ Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
     ActorUtil.AddPackageOverride(w, slotPkg[i], 95, 1)
     If !SameSession(i, w, stamp)
         ; the session changed during the call: released (the slot is not hers any more) -> our override comes off again; a retask of
-        ; hers in this slot owns the slot's package from now on (its own start set it up) -> left alone. v1.6.1 (review R1 § VERIFY
-        ; #3): a release IN FLIGHT (FreeSession running on another stack - slotWalker still her) is a release too: its own removal may
+        ; hers in this slot owns the slot's package from now on (its own start set it up) -> left alone. v1.6.1:
+        ; a release IN FLIGHT (FreeSession running on another stack - slotWalker still her) is a release too: its own removal may
         ; already be behind it, so the override comes off here as well (twice is harmless)
         Bool pinOff = slotWalker[i] != w
         If slotFreeing
@@ -854,10 +854,10 @@ Function SteerArrive(Int i, Actor w, Int sid, Float[] st, Float afNow)
     ArrivalTail(i, w, d, angErr, isShort, stamp, afNow, " (steered STEER #" + sid + ": pinned where she stopped" + how + ")")
 EndFunction
 
-; The end of an arrival - shared by the engine session's arrival block and the steered arrival (S1 §2.9): the ARRIVED line,
+; The end of an arrival - shared by the engine session's arrival block and the steered arrival: the ARRIVED line,
 ; the hold, Standpoint_Arrived, the move request's C answer, the pose, the hold policy. asHow is appended to the log line.
 Function ArrivalTail(Int i, Actor w, Float afDist, Float afAngErr, Bool abShort, Float afStamp, Float afNow, String asHow)
-    ; v1.6.1 FIX-UP (C4a-2): her engine leg went to the NEAREST NAVMESH POINT of an asked point off the navmesh - she stands where the
+    ; v1.6.1: her engine leg went to the NEAREST NAVMESH POINT of an asked point off the navmesh - she stands where the
     ; game's walk could take her: a SHORT arrival (C 9), its distance measured to the point the caller asked for
     If slotEngineLeg && slotEngAskX
         If slotEngineLeg[i] == 3
@@ -974,8 +974,8 @@ ObjectReference Function AnchorFor(Int i, Actor akW)
     Return akW
 EndFunction
 
-; v1.6.0 BUG 1 (S1 §4): ONE cross-cell move (the engine's own MoveTo, offsets from the anchor) + the heading. SetPosition never
-; changes a reference's cell: the 2026-11-06 far runs walked to a marker left inside Lakeview Manor. One call, so the marker
+; v1.6.0 BUG 1: ONE cross-cell move (the engine's own MoveTo, offsets from the anchor) + the heading. SetPosition never
+; changes a reference's cell: the 2026-11-06 far runs walked to a marker left inside a house interior. One call, so the marker
 ; never stands at her feet for a frame.
 Function PlaceMarker(ObjectReference akMk, ObjectReference akAnchor, Float afX, Float afY, Float afZ, Float afFaceDeg)
     akMk.MoveTo(akAnchor, afX - akAnchor.GetPositionX(), afY - akAnchor.GetPositionY(), afZ - akAnchor.GetPositionZ(), False)
@@ -1019,7 +1019,7 @@ Function EnsureSteerArrays(Bool abNew = False)
         slotEngAskY = new Float[4]
     EndIf
     If !slotSteerPhase
-        slotSteerPhase = new Int[4]        ; (FIX ROUND: a save made with the first 1.6.0 build has the arrays above but not this one)
+        slotSteerPhase = new Int[4]        ; (1.6.0: a save made with the first 1.6.0 build has the arrays above but not this one)
     EndIf
     If !slotSteerKind
         slotSteerKind = new Int[4]         ; (v1.6.1: a save made with 1.6.0 has the arrays above but not these)
@@ -1036,7 +1036,7 @@ EndFunction
 ; v0.9.3 THE PAIR RULE for a close request to an NPC (refactored in 1.6.0 so the engine path and the steered path share it - the
 ; code is unchanged). For an NPC target (not the player, not herself) the walker's and the target's character controllers ignore
 ; each other for as long as this session lives, so her body can overlap the target's (measured in the second run: 41 cm front,
-; 46 cm right, the target not moved - report 05 §12.2). FreeSession / a retask release it; the DLL switches it off only once the
+; 46 cm right, the target not moved). FreeSession / a retask release it; the DLL switches it off only once the
 ; two are 90 u apart. KNOWN LIMIT: the rule only bites for a pair whose bodies START to overlap after it is armed.
 Function PairArmFor(Int i, Actor w, ObjectReference t, Float afStamp)
     Actor tA = t as Actor
@@ -1140,7 +1140,7 @@ EndEvent
 ; the DLL. 0 (every other caller) = exactly as before; any start resets the slot's far mark (a GoTo retasking a far session
 ; makes it an ordinary one - that walk answers X 6, as any walk of hers would).
 ; v1.6.0: akAnchor (BUG 1) = the reference the marker is placed relative to - a relative session's TARGET (None = the walker);
-; abSteered = a STEERED session (S1 §2.9): no marker, no alias, no package and no WalkStop here - her older walk is replaced by the
+; abSteered = a STEERED session: no marker, no alias, no package and no WalkStop here - her older walk is replaced by the
 ; DLL's own walk (which keeps her held until it takes her); the slot is marked "starting" (slotSteer -1) and the CALLER asks the
 ; DLL (SteerBegin) once it has written the slot's fields. A held walker's pin (our package) comes off without the let-go wait.
 Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float afFaceDeg, Float afHoldSeconds = -1.0, Bool abPlain = False, Bool abClose = False, Int aiRoute = 0, Float afFinX = 0.0, Float afFinY = 0.0, Float afFinZ = 0.0, Float afFinFace = 0.0, ObjectReference akRouteTarget = None, Int aiFarWalk = 0, ObjectReference akAnchor = None, Bool abSteered = False)
@@ -1163,12 +1163,12 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
     EndIf
 
     slotWalker[i] = akWalker
-    ; v0.7.4: stamp the session FIRST. A retask WITHOUT Release (VRCD re-solves when its target moves) reuses this slot while the
+    ; v0.7.4: stamp the session FIRST. A retask WITHOUT Release (a consumer re-solves when its target moves) reuses this slot while the
     ; previous session's arrival handling may still sit in one of its waits; from this line on its SameSession check fails, before
     ; the marker is moved below. (The real start time is written again at the end, as before.)
     slotStart[i] = Utility.GetCurrentRealTime()
     Float startStamp = slotStart[i]     ; v0.9.6: this start's own stamp, asked again after the let-go wait below
-    ; v0.9.8 (the review): the slot is NOT ACTIVE while it is being re-started (it goes active again further down, in
+    ; v0.9.8: the slot is NOT ACTIVE while it is being re-started (it goes active again further down, in
     ; one piece with the new point). A retask of a walker who is still walking used to leave it active under the first
     ; stamp with the OLD session's close / route / retry fields: a poll in that window could enter the arrival handling
     ; and take her package off after the new one had been put on. Now no poll starts, and every stale check fails.
@@ -1180,7 +1180,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
     slotRoute[i] = 0
     slotRouteLegs[i] = 0
     ; v1.4.0: a walk off the navmesh of hers (StandpointAPI.WalkTo, C++ RequestWalk) ends here - it answers X 6 (replaced);
-    ; the DLL hands her movement back at once. A session and a walk never own her at the same time. (The 1.4.0 review: HERE,
+    ; the DLL hands her movement back at once. A session and a walk never own her at the same time. (1.4.0: HERE,
     ; not right after the stamp - a native call lets another stack run, and the slot must be inactive with its route reset
     ; before that can happen.)
     ; v1.5.1: the far mark goes down first (still no native call since slotActive above); a far start's own walk is not stopped
@@ -1201,7 +1201,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
     slotSteerHold[i] = 0
     slotSteerWait[i] = 0
     slotSteerPhase[i] = 0
-    slotSteerKind[i] = 0                    ; v1.6.1 (N1: the steered caller writes its kind; C4: no engine leg yet)
+    slotSteerKind[i] = 0                    ; v1.6.1 (the steered caller writes its kind; no engine leg yet)
     slotEngineLeg[i] = 0
     If abSteered
         slotSteer[i] = -1
@@ -1223,7 +1223,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
         Standpoint.PairRelease(oldPairH)
     EndIf
     ; v0.9.6: A HELD WALKER IS LET GO BEFORE SHE IS RETASKED.
-    ; Measured 2026-10-10 00:24-00:29 (the third close-contact run, report 05 §14): a walker pinned on her idle marker
+    ; Measured 2026-10-10 00:24-00:29 (the third close-contact run): a walker pinned on her idle marker
     ; (arrived, holding) did NOT walk when the marker was moved and the same package override was removed and added
     ; again in one go. She stood in her pose - package ours, procedure 1 - for 90 s (step 3) or until the stall rule took
     ; her where she stood (5 more steps). "Calling again retasks her" was true only for a walker who was still walking.
@@ -1252,7 +1252,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
     EndIf
     Float steerDist = 0.0                   ; v1.6.0: her flat distance to the point (a steered session's backstop limit)
     If abSteered
-        ; v1.6.0 (S1 §2.9): NO marker, alias or package - the DLL walks her. An engine session of hers in this slot (a retask, a
+        ; v1.6.0: NO marker, alias or package - the DLL walks her. An engine session of hers in this slot (a retask, a
         ; held pin) loses its package and alias here, WITHOUT the let-go wait or IdleForceDefaultState: the DLL's walk takes her
         ; (and breaks an idle pose itself) and holds her while her route is planned.
         If wasHeld
@@ -1273,7 +1273,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
         steerDist = Math.Sqrt(steerDx * steerDx + steerDy * steerDy)
         slotPlain[i] = abPlain              ; (the pin's marker after the arrival: EnsureMarker makes it then)
     Else
-        ; v1.6.0 BUG 1 (S1 §4): the marker is placed by ONE cross-cell move relative to its anchor - the session's TARGET for a
+        ; v1.6.0 BUG 1: the marker is placed by ONE cross-cell move relative to its anchor - the session's TARGET for a
         ; relative session (its point lives in the target's cell; a walker in another cell is walked there through the door, as
         ; the engine does), else the walker. Markers are made AT THE WALKER (until 1.5.1 at the player).
         ObjectReference ssAnchor = akWalker
@@ -1321,13 +1321,13 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
 
     If saAvailable
         SeverActionsNativeExt.Travel_CancelByActor(akWalker)
-        ; v0.9.1: a CLOSE session does NOT start SeverActions' stuck recovery. Measured 2026-10-09 19:14 (report 05 §10): a
+        ; v0.9.1: a CLOSE session does NOT start SeverActions' stuck recovery. Measured 2026-10-09 19:14: a
         ; close walker stood still in body contact with her target, 40.6 u from her point - just outside SA's 40 u
         ; "arrived" radius. SA called her stuck: a nudge after 4.5 s, then "Level 2 leapfrog ... dist=500 moved=496u"
         ; after 7.5 s - 500 u straight ahead, through the target and the wall, into the void under the cell.
         ; Standing still next to the target is how a close walk ENDS; the driver's own stall rule handles it.
-        ; v0.9.2 - the user's ruling, 2026-10-09: "drop it, teleportation is never good. Yes, NPC get stuck, but
-        ; teleporting is a world of bug, including what just happen just now". NO Standpoint walk starts SeverActions'
+        ; v0.9.2 (2026-10-09): teleportation is never acceptable - a stuck NPC is better than a teleported one.
+        ; NO Standpoint walk starts SeverActions'
         ; stuck recovery any more (it was `Travel_BeginXY(akWalker, afX, afY, afZ, None, 40.0, "standpoint_" + i, 12, 90)`
         ; right here). A walker who gets stuck is moved by nothing: she stays where she is until the 90 s limit
         ; (Standpoint_Failed 2) or, if she stands still near the point, until the short-arrival handling takes her.
@@ -1349,7 +1349,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
     slotRouteFails[i] = 0
     slotBlockPolls[i] = 0
     slotRouteOk[i] = False
-    slotRoute[i] = aiRoute                  ; v1.3.0 (the review): for EVERY session, in this one piece (a retask must never
+    slotRoute[i] = aiRoute                  ; v1.3.0: for EVERY session, in this one piece (a retask must never
                                             ; inherit a detour's state 4 written by a stack that ran during its early part)
     If akRouteTarget
         slotFinX[i] = afFinX
@@ -1414,7 +1414,7 @@ Int Function StartSession(Actor akWalker, Float afX, Float afY, Float afZ, Float
     slotPausedT[i] = 0.0
     slotLastPX[i] = akWalker.GetPositionX()
     slotLastPY[i] = akWalker.GetPositionY()
-    ; v1.2.0: where she starts from is logged too (report 11 §10: the stuck positions had to be guessed)
+    ; v1.2.0: where she starts from is logged too (the stuck positions had to be guessed)
     String steerTxt = ""
     If abSteered
         steerTxt = " - STEERED (the DLL solves the spot and walks her; the point above is the target / the asked point)"
@@ -1429,7 +1429,7 @@ Bool Function ApiRelease(Actor akWalker)
     If i < 0
         Return False
     EndIf
-    ; FIX ROUND (review R1 NIT 12): a release already in flight (another stack's FreeSession - SteerEnd's, PollSlot's - yields before
+    ; 1.6.0: a release already in flight (another stack's FreeSession - SteerEnd's, PollSlot's - yields before
     ; slotWalker is cleared) has sent its event: no second Failed 3, no second FreeSession
     If slotFreeing
         If slotFreeing[i]
@@ -1470,8 +1470,8 @@ Int Function ApiFarStart(Actor akWho, Float afX, Float afY, Float afZ, Float afF
     Return h
 EndFunction
 
-; The DLL ends walk aiWalk's far session. The mode is decided again HERE, when it runs (Standpoint.WalkFarEndMode - review R2
-; B2 / R2 / R3): 1 = a walk of hers goes on (the direct walk after the hand-over, or a newer walk): the override comes off WITHOUT
+; The DLL ends walk aiWalk's far session. The mode is decided again HERE, when it runs (Standpoint.WalkFarEndMode):
+; 1 = a walk of hers goes on (the direct walk after the hand-over, or a newer walk): the override comes off WITHOUT
 ; IdleForceDefaultState / EvaluatePackage (she keeps moving; that walk evaluates her package later); 2 = override off +
 ; EvaluatePackage (no walk of hers any more - a late end never leaves a stale travel package - or she is in a reaction / a hand
 ; holds her); 0 = the full let-go. Returns the mode applied; -1 = nothing (the slot holds another session by now: a GoTo /
@@ -1550,7 +1550,7 @@ Function ApiRunRequest(Int aiId)
     ; v0.9.3: where = who -> HOLD YOUR PLACE. She is pinned where she stands, facing the way she faces, for the asked
     ; hold time. No solve, never close mode, no pair rule, no face target. She "arrives" at once through the normal
     ; arrival block (C, detail 0, about 3 s later). Why: a close request is solved against where its target stands at
-    ; that moment, and a free target walks away (Carmella went 214 u during the second run - report 05 §12.4).
+    ; that moment, and a free target walks away (one went 214 u during the second close-contact run).
     Actor tSelf = t as Actor
     If tSelf == w
         Int poseHold = v[3] as Int
@@ -1581,7 +1581,7 @@ Function ApiRunRequest(Int aiId)
             close = 1
         EndIf
     EndIf
-    ; v1.6.0 (S1 §2; spec D item 4): Skyrim VR with [Session] Steered = 1 - THE STEERED SESSION: the DLL solves the hour by
+    ; v1.6.0: Skyrim VR with [Session] Steered = 1 - THE STEERED SESSION: the DLL solves the hour by
     ; physics (the clock solver's own ring), plans one route (round the target, the last stretch straight in) and walks her; no
     ; SolveClock / RouteStage here. A target the steered walk cannot reach (another interior / worldspace) keeps the engine path.
     If SteeredOn()
@@ -1607,8 +1607,8 @@ Function ApiRunRequest(Int aiId)
     If close == 1
         closeB = True
     EndIf
-    ; ---- v0.9.7 / v0.9.8: STEP BACK AND AROUND, and NO GLIDE (the user's rulings of 2026-10-10: "yes, have standpoint
-    ; do the step back and around itself" and, of the glide, "Let's try not to do that again"; report 05 §14.4, §15-§17) ----
+    ; ---- v0.9.7 / v0.9.8: STEP BACK AND AROUND, and NO GLIDE (2026-10-10: Standpoint does the step back and around
+    ; itself; the glide slid her in her wait pose and is gone) ----
     ; A close request to an NPC (not the player, not herself) is walked - every step of it. RouteStage (below) says
     ; whether she can walk to the asked point from where she stands, or needs a STOP first: her step back from the
     ; target, a point on the way around it, or the approach point the walk in starts from. The session then starts
@@ -1672,7 +1672,7 @@ Function ApiRunRequest(Int aiId)
     Standpoint.Log("session " + i + " answers move request #" + aiId + " (hour " + s[5] + ", pose " + pose + ", hold " + hold + " s, close " + close + ")")
     ; v0.9.3: THE PAIR RULE is part of close mode. For an NPC target (not the player, not herself) the walker's and the
     ; target's character controllers ignore each other for as long as this session lives, so her body can overlap the
-    ; target's (measured in the second run: 41 cm front, 46 cm right, the target not moved - report 05 §12.2).
+    ; target's (measured in the second run: 41 cm front, 46 cm right, the target not moved).
     ; FreeSession / a retask release it; the DLL switches it off only once the two are 90 u apart.
     ; KNOWN LIMIT: the rule only bites for a pair whose bodies START to overlap after it is armed - a walker sent from
     ; body contact keeps the old contact until the two have separated once.
@@ -1834,7 +1834,7 @@ Function FreeSession(Int i, Int aiMode = 0)
         EndIf
         slotDetour[i] = 0
     EndIf
-    ; v1.6.0 (S1 §2.9): a STEERED session ends in the DLL first - its walk / stand hands her back (the walk's own hand-back
+    ; v1.6.0: a STEERED session ends in the DLL first - its walk / stand hands her back (the walk's own hand-back
     ; re-evaluates her package). While the walk or its stand has her, the driver does NOT let her go itself (mode 1: no
     ; IdleForceDefaultState mid-stride); pinned by our package after her arrival, the usual let-go.
     Bool freeSteered = False
@@ -1923,7 +1923,7 @@ Function PollSlot(Int i)
             slotPairH[i] = 0
             Standpoint.PairRelease(gonePairH)
         EndIf
-        If slotPathH                   ; v1.3.0 (the review): nor a way round still being planned for her
+        If slotPathH                   ; v1.3.0: nor a way round still being planned for her
             Int gonePathH = slotPathH[i]
             If gonePathH > 0
                 slotPathH[i] = 0
@@ -1934,9 +1934,9 @@ Function PollSlot(Int i)
     EndIf
     Float now = Utility.GetCurrentRealTime()
 
-    ; ---- v1.2.0 (report 11 §7.2): a PAUSED game does not count -------------
+    ; ---- v1.2.0: a PAUSED game does not count -------------
     ; The polls stop while the game is paused (a menu, the VR dashboard) but the real-time clock runs on, so a walk that
-    ; was paused for 2.5 min timed out on the first poll after it (BiSR test, 2026-10-30 18:56: "TIMEOUT" after 173 s).
+    ; was paused for 2.5 min timed out on the first poll after it (a consumer's test, 2026-10-30: "TIMEOUT" after 173 s).
     ; A gap of more than 5 s since this session's last poll is taken as a pause: the 90 s limit and the stall clock do
     ; not count it. (5 s, not less: the arrival handling can hold one poll for about 11 s, and the two ways out of it
     ; that keep her walking refresh slotLastPollT themselves.)
@@ -1957,7 +1957,7 @@ Function PollSlot(Int i)
     If farWalk > 0
         Bool farAlive = Standpoint.WalkFarAlive(farWalk)
         If !farAlive
-            ; how it is freed is the DLL's word (review R2 B2 / R2): quietly while a walk of hers goes on, never the let-go on a
+            ; how it is freed is the DLL's word: quietly while a walk of hers goes on, never the let-go on a
             ; body in a reaction
             Int farMode = Standpoint.WalkFarEndMode(farWalk, w, 0)
             If FarWalkOf(i) == farWalk
@@ -1996,7 +1996,7 @@ Function PollSlot(Int i)
             slotLastIdx[i] = idx
         EndIf
         ; v0.9.3: close mode's stall clock starts at the FIRST poll in which OUR package is the current one, whatever its
-        ; procedure. (0.9.0-0.9.2 waited for a procedure-0 poll. Measured 2026-10-09 21:19, report 05 §12.4: a walk ran in
+        ; procedure. (0.9.0-0.9.2 waited for a procedure-0 poll. Measured 2026-10-09 21:19: a walk ran in
         ; procedure 1 from its first poll, the clock never started, and she stood 42 u short for 105 s.)
         If ourPkg
             If !slotSeenOurs[i]
@@ -2006,10 +2006,10 @@ Function PollSlot(Int i)
                 slotStallT[i] = now
             EndIf
         EndIf
-        ; v1.2.0 (F2, report 11 §4): OUR package in procedure 1 counts as "sent" too. Within about 50 u of her marker the
+        ; v1.2.0 (F2): OUR package in procedure 1 counts as "sent" too. Within about 50 u of her marker the
         ; engine does not walk her - it poses her where she stands, in procedure 1, from the first poll (KNOWLEDGEBASE: the
         ; 0.9.8 run). A walker re-sent 25-80 u away therefore never showed procedure 0, the arrival handling never opened for
-        ; her, and she stood still until the 90 s limit (BiSR test 2026-10-30: three times, about 520 s in all). The arrival
+        ; her, and she stood still until the 90 s limit (a consumer's test 2026-10-30: three times, about 520 s in all). The arrival
         ; handling's own "still closing in" check keeps a walker who really is moving in procedure 1 walking.
         If idx == 1 && ourPkg
             slotSawTravel[i] = True
@@ -2051,12 +2051,12 @@ Function PollSlot(Int i)
         Float pdy = w.GetPositionY() - player.GetPositionY()
         Float pd = Math.Sqrt(pdx * pdx + pdy * pdy)
         Bool bumpNow = Standpoint.GetRunOncePackageTypeId(w) == 32 && pd < 80.0
-        ; v1.2.0 (report 11 §7.3): in a small room any path brushes past the player. A walker who moved 8 u or more
+        ; v1.2.0: in a small room any path brushes past the player. A walker who moved 8 u or more
         ; since the last poll (half a second) is walking past him, not blocked by him - the contact count starts again.
         ; (The engine's own bump reaction above, and a grab, still cancel as before.)
         Float cmx = w.GetPositionX() - slotLastPX[i]
         Float cmy = w.GetPositionY() - slotLastPY[i]
-        ; FIX ROUND (review R1 #9): a STEERED session that is starting, planning (she stands HELD while her route is worked out -
+        ; 1.6.0: a STEERED session that is starting, planning (she stands HELD while her route is worked out -
         ; outdoors for seconds) or waiting stands still on purpose: the player touching her then is no block, and no bump stops it
         Bool steerStill = False
         If steeredPoll
@@ -2085,7 +2085,7 @@ Function PollSlot(Int i)
     ; ------------------------------------------------------------------------
 
     ; ---- danger recognition (v0.7.0) ---------------------------------------
-    ; USER RULE (2026-08-18): Standpoint sells ACCURACY, not 100% arrival. If
+    ; DESIGN RULE (2026-08-18): Standpoint sells ACCURACY, not 100% arrival. If
     ; anything hostile is upon the walker or standing in the route, DROP the
     ; session outright - no pausing, no waiting for a corridor to clear, no
     ; resume. The destination is always short-range, so the CONSUMER can simply
@@ -2165,7 +2165,7 @@ Function PollSlot(Int i)
         ElseIf slotBlockPolls[i] < 2
             Int kicksBefore = slotLegKicks[i]
             Float kickStamp = slotStart[i]
-            slotArrivalBusy[i] = kickStamp      ; (the review) one stack only while she may be let go and sent again
+            slotArrivalBusy[i] = kickStamp      ; one stack only while she may be let go and sent again
             Bool legKickOk = LegKick(i, w, kickStamp, now)
             If slotArrivalBusy[i] == kickStamp
                 slotArrivalBusy[i] = 0.0
@@ -2179,7 +2179,7 @@ Function PollSlot(Int i)
         EndIf
     EndIf
     ; v1.3.0 - THE DETOUR for a PLAIN walk's own leg (GoTo / GoToPoint; a close session keeps its own rules near its
-    ; target - the review): 80 u to 1500 u from her point (nearer, the rules below decide; further, the engine's own
+    ; target): 80 u to 1500 u from her point (nearer, the rules below decide; further, the engine's own
     ; pathing), she has walked and now stands still - the engine reports MOVEMENT BLOCKED on two polls in a row with her
     ; 1 s still, or 3 s still - a way round is planned first (DetourStart; at most 2 per session).
     If !routePolled && slotClose[i] == 0 && d >= 80.0 && d <= 1500.0 && slotSeenOurs[i] && slotHasMoved[i] && slotArrivalBusy[i] != slotStart[i]
@@ -2215,7 +2215,7 @@ Function PollSlot(Int i)
             EndIf
         EndIf
     EndIf
-    ; v1.6.1 (C4; run R3 §3 / §7 - A1 under the dining table: the engine leg stalled 110-151 u short, MOVEMENT BLOCKED, and nothing
+    ; v1.6.1 (a VR test, a spot under a dining table: the engine leg stalled 110-151 u short, MOVEMENT BLOCKED, and nothing
     ; ended it for 56-62 s): an ENGINE FALLBACK leg (slotEngineLeg: the steered walk had no route, or she sat) that does not get on
     ; ends NOW instead of at the 90 s - 80 u or more from her point (nearer, the stall rule below makes it an arrival, as for every
     ; plain session), no way round left to plan (none after no route; a sitting walker's leg has used its two), and the engine
@@ -2270,7 +2270,7 @@ Function PollSlot(Int i)
     EndIf
     Bool stalled = False
     ; (v0.9.4: not asked while another stack already runs this session's arrival handling - see slotArrivalBusy below)
-    ; v1.2.0 (F2, report 11 §4): a PLAIN session (GoTo / GoToPoint) gets the stall rule too, when she stands within
+    ; v1.2.0 (F2): a PLAIN session (GoTo / GoToPoint) gets the stall rule too, when she stands within
     ; 80 u of her point - 3 s still once she has moved, 8 s if she never moved. Before, only the 90 s limit ended a
     ; plain walker who had stopped 25-80 u short. Further out a plain walker keeps the 90 s limit (a door, a crowd).
     If !routePolled && (slotClose[i] > 0 || d < 80.0) && slotSeenOurs[i] && slotArrivalBusy[i] != slotStart[i]
@@ -2280,8 +2280,8 @@ Function PollSlot(Int i)
         If slotHasMoved[i]
             needStill = 3.0
         EndIf
-        ; v0.9.9 - BLOCKED: REACT AT ONCE (the user, 2026-10-10: "if the path is blocked, making the NPCs actually react
-        ; right away is probably the best thing to do"). The engine names it itself: run-once package type 36 =
+        ; v0.9.9 - BLOCKED: REACT AT ONCE (2026-10-10: when the path is blocked, the NPC reacts right away).
+        ; The engine names it itself: run-once package type 36 =
         ; "movement blocked" (run 4 step 7 and run 5 step 9 stood 8 s under it). For a close session with an NPC
         ; target (slotRouteOk): type 36 AND no movement for 1 s = the walk has ended here, now - no waiting out the
         ; 3 s / 8 s. What follows is the arrival block's business: ONE more walk in, then C 9 or O 17.
@@ -2357,7 +2357,7 @@ Function PollSlot(Int i)
     ; leaves the block with the same session still walking ("still closing in") clears it.
     If !routePolled && ((idx == 1 && ourPkg && slotSawTravel[i] && d < 80.0) || d < 25.0 || stalled) && slotArrivalBusy[i] != slotStart[i]
         slotArrivalBusy[i] = slotStart[i]
-        ; ---- v0.7.4: the session stamp (VRCD h79 §16.2) -----------------------
+        ; ---- v0.7.4: the session stamp -----------------------
         ; Measured 2026-10-01 23:49-23:50: this block waits about 11 s in total on ONE OnUpdate stack and never asked whether
         ; the slot still held the session it started with. A consumer released slot 1 and started a NEW session in the same
         ; slot during those waits; the stale poll then measured the NEW session's point, moved the NEW session's marker to
@@ -2365,7 +2365,7 @@ Function PollSlot(Int i)
         ; slotStart is unique per session (StartSession), so it is the stamp: after EVERY wait the block checks SameSession
         ; and, when the session is no longer the one it started with, leaves WITHOUT touching the marker, the walker or the slot.
         Float stamp = slotStart[i]
-        ; v1.2.0 (F4, report 11 §7.1): the waits below were flat (3 s, 4 s, 2 s, 2.5 s - about 8.4 s for a walker who
+        ; v1.2.0 (F4): the waits below were flat (3 s, 4 s, 2 s, 2.5 s - about 8.4 s for a walker who
         ; had already stopped). Each is now "UP TO" that long and ends as soon as she has stood still for 1.5 s facing
         ; the right way (SettleWait). blockStill = how long she had stood still when the last of them ended.
         Float blockStill = 0.0
@@ -2396,10 +2396,10 @@ Function PollSlot(Int i)
             angErr = NormAng180(w.GetAngleZ() - slotFaceDeg[i])
             Standpoint.Log("  s" + i + " re-measured after pose wait")
         EndIf
-        ; ---- v0.7.2: she stopped SHORT of the point (VRCD h79 §13) ------------
+        ; ---- v0.7.2: she stopped SHORT of the point ------------
         ; Measured 2026-10-01: wedged between a table and the NPC she walked to, a walker stood 16 u short with the travel
-        ; still unfinished, so UseIdleMarker never ran and she was never turned (93 deg off). The user: "turn her if she come
-        ; short, with a recognition and detection if the movement is still possible".
+        ; still unfinished, so UseIdleMarker never ran and she was never turned (93 deg off). The rule: turn her when she ends
+        ; short, after checking whether she is still moving.
         ;   still closing in (> 4 u in 2 s) -> not arrived: keep walking (the 90 s limit still bounds it)
         ;   stuck -> move the marker to where she stands (same heading): the travel completes and the engine's own
         ;            UseIdleMarker turns and pins her there; a direct turn only if the engine did not do it.
@@ -2428,7 +2428,7 @@ Function PollSlot(Int i)
             ; v0.9.1 / v0.9.2: a walker who is NOT near where she was sent has not arrived, whatever stopped her.
             ; Measured 2026-10-09 19:14: thrown 455 u away and falling 4,700 u below the floor, she was taken as a
             ; "short arrival" - the marker was moved to her in mid-air, pinned her there, and the request answered C.
-            ; The rule, for EVERY session since 0.9.2 (the user: "sure"):
+            ; The rule, for EVERY session since 0.9.2:
             ;   a normal session - 100 u or more from the asked POINT
             ;   a close session  - 100 u or more from her TARGET (its point may lie inside the target's body)
             ;   either           - 100 u above / below the asked point
@@ -2463,10 +2463,9 @@ Function PollSlot(Int i)
                 FreeSession(i)
                 Return
             EndIf
-            ; ---- v0.9.8: NO GLIDE - ONE MORE WALK IN (the user's ruling of 2026-10-10; report 05 §16.5, §17) ----
+            ; ---- v0.9.8: NO GLIDE - ONE MORE WALK IN (2026-10-10) ----
             ; 0.9.3-0.9.7 moved a close walker who had stopped short onto her point with a translate (the glide). The
-            ; fourth run showed what that is: all 8 glides slid her across the floor in her wait pose. The user: "moving
-            ; a NPC while they are in the wait pose make her slide on the floor. Let's try not to do that again."
+            ; fourth run showed what that is: all 8 glides slid her across the floor in her wait pose - not acceptable.
             ; The same run showed why she stops short and how to get her there on her feet: within about 50 u of her
             ; marker she does not walk - she poses where she stands; a walk that starts 58 u or more from the point goes
             ; all the way. So, for a close session with an NPC target (slotRouteOk), ONCE per session (slotRetry):
@@ -2547,8 +2546,7 @@ Function PollSlot(Int i)
                     EndIf
                 EndIf
             EndIf
-            ; ---- v0.9.9: NO WAY (the user, 2026-10-10: "if it cannot find any other path to make it there, then report it
-            ; as such") ----
+            ; ---- v0.9.9: NO WAY (2026-10-10: when no other path gets her there, it is reported as such) ----
             ; Here every way has been tried: she ended more than 8 u from the point, a second walk in is not possible
             ; any more (used, or she never walked, or no stop could be solved) or the miss is 12 u or less. For a close
             ; request to an NPC (slotRouteOk) "taken where she stands" is only an ARRIVAL when she is NEAR: on the
@@ -2657,7 +2655,7 @@ Function PollSlot(Int i)
         ArrivalTail(i, w, d, angErr, wasShort, stamp, now, "")
         Return
     EndIf
-    If now - slotStart[i] - slotPausedT[i] > 90.0       ; v1.2.0: a paused game is not counted (report 11 §7.2)
+    If now - slotStart[i] - slotPausedT[i] > 90.0       ; v1.2.0: a paused game is not counted
         Standpoint.Log("  s" + i + " TIMEOUT idx=" + idx + " d=" + (d as Int) + " at " + PosText(w))
         SendFailed(w, 2.0)
         ApiReport(i, "O", 2)
@@ -2666,7 +2664,7 @@ Function PollSlot(Int i)
     EndIf
 EndFunction
 
-; v0.7.4: is slot i still the session the arrival block started with? Asked after every wait in that block (VRCD h79 §16.2).
+; v0.7.4: is slot i still the session the arrival block started with? Asked after every wait in that block.
 ; A release frees the walker and the active flag; a new session (a retask too) writes a new slotStart.
 ; v0.9.5: a release that is IN FLIGHT (FreeSession(i) running on another stack, slotWalker / slotActive not yet cleared)
 ; is "not the same session" too - a stale handler gives up at once instead of acting on a slot that is being freed.
@@ -2689,7 +2687,7 @@ Function RemoveTestSpell(Int aiFormId)
     EndIf
 EndFunction
 
-; v1.2.0: the per-session arrays the BiSR-letter fixes added. Setup makes them new at every load (abNew); on an older
+; v1.2.0: the per-session arrays the 1.2.0 fixes added. Setup makes them new at every load (abNew); on an older
 ; save a call can come in before OnPlayerLoadGame's Setup ran - then they are made here, once.
 Function EnsureV12Arrays(Bool abNew)
     If abNew || !slotPausedT
@@ -2717,7 +2715,7 @@ Function EnsureV12Arrays(Bool abNew)
     EndIf
 EndFunction
 
-; v1.3.0 - LEG START (the user's BiSR run of 2026-10-30 22:37-23:22, handover 16 §2): a leg that has not STARTED - she
+; v1.3.0 - LEG START (a consumer's VR test, 2026-10-30): a leg that has not STARTED - she
 ; has not moved 4 u since her package was first seen running on it - is kicked before it can count as failed:
 ;   2 s -> her package is evaluated again
 ;   4 s -> she is let go and the SAME leg is sent once more (a fresh start: its own 8 s from there)
@@ -2757,8 +2755,7 @@ Bool Function LegKick(Int i, Actor akW, Float afStamp, Float afNow)
     Return True
 EndFunction
 
-; v1.3.0 - THE DETOUR (the user, 2026-10-30: "If we have a route and create waypoint on that route, we can travel the
-; NPC on that route "manualy" ... right 250u, front 350u, and left 200u ... with check to confirm they arrive").
+; v1.3.0 - THE DETOUR (2026-10-30: a route of waypoints, walked leg by leg, each arrival checked).
 ; Her leg has FAILED with 60 u or more still to go (the engine's MOVEMENT BLOCKED, or she stood still after walking).
 ; Before it counts, the planner looks for a way round (PathPlanner.cpp: the navmesh for the floor, Havok rays at knee and
 ; chest height for what stands in the way - furniture, a house mod's walls - a fraction of a second, sliced per frame).
@@ -2787,7 +2784,7 @@ Bool Function DetourStart(Int i, Actor akW, Float afStamp, String asWhy)
         slotDetourTries[i] = 2
         Return DetourResume(i, akW, afStamp)
     EndIf
-    ; (the review) the four writes in ONE piece - no call out of the script between them, so a retask cannot slip in
+    ; the four writes in ONE piece - no call out of the script between them, so a retask cannot slip in
     ; between and inherit the planning state
     slotPathH[i] = dsH
     slotDetour[i] = 1
@@ -2835,7 +2832,7 @@ Bool Function DetourPoll(Int i, Actor akW, Float afStamp, Float afNow)
         Standpoint.Log("  s" + i + " DETOUR: a way round with " + (dpN - 1) + " point(s) before her own:" + dpPts)
         Return DetourNext(i, akW, afStamp)
     EndIf
-    ; (the review) no way round to walk: the planner sees nothing in the way (the block is a body - the target, the
+    ; no way round to walk: the planner sees nothing in the way (the block is a body - the target, the
     ; player in a doorway), or there is none. No second detour in this session: her leg is tried once more as it was,
     ; and if it fails again the usual rules count it at once.
     String dpHow = "the planner sees nothing in the way (the block is a body, or something it cannot see)"
@@ -2889,7 +2886,7 @@ Bool Function DetourResume(Int i, Actor akW, Float afStamp)
     Return drSent
 EndFunction
 
-; v1.2.0: "(x,y,z)" of a reference, for the log (report 11 §10: put her position on the session and verdict lines)
+; v1.2.0: "(x,y,z)" of a reference, for the log (her position on the session and verdict lines)
 String Function PosText(ObjectReference akRef)
     If !akRef
         Return "(none)"
@@ -2897,7 +2894,7 @@ String Function PosText(ObjectReference akRef)
     Return "(" + (akRef.GetPositionX() as Int) + "," + (akRef.GetPositionY() as Int) + "," + (akRef.GetPositionZ() as Int) + ")"
 EndFunction
 
-; v1.2.0 (F4, report 11 §7.1): wait UP TO afMax seconds, in 0.25 s steps, and end early once she has stood still (under
+; v1.2.0 (F4): wait UP TO afMax seconds, in 0.25 s steps, and end early once she has stood still (under
 ; 2 u per step) for 1.5 s AND faces afWantDeg within 5 deg. Returns how long she had stood still when it ended (0 = she
 ; was moving), or -1.0 when the session changed meanwhile (the caller abandons, as after every wait).
 Float Function SettleWait(Int i, Actor akW, Float afStamp, Float afMax, Float afWantDeg)
@@ -2976,15 +2973,14 @@ String Function GlideAngleText(Float afCos)
 EndFunction
 
 ; ===================== v0.9.7 / v0.9.8: LET GO, and STEP BACK AND AROUND =====================
-; v0.9.8 rewrote the route after the fourth close-contact run (2026-10-10 10:11, report 05 §16). What that run measured:
+; v0.9.8 rewrote the route after the fourth close-contact run (2026-10-10 10:11). What that run measured:
 ;   F1  Within about 50 u of her marker she does NOT walk to it: she poses where she stands (8 of 8 stops: 9-45 u).
 ;   F2  A walk that STARTS 58 u or more from the marker goes all the way (1.2-3.9 u), also onto a point inside the other
 ;       NPC's space (28 cm and 44 cm centre to centre, by walking).
 ;   F3  A marker that is moved while she walks is not followed at once: she always walks to where it WAS first. In the
 ;       final approach (procedure 1) she then poses there and stays.
 ;   F4  The let-go works (12 of 12), and the engine runs her own package 0.1-0.25 s after ours is taken off.
-; And the user's ruling on the glide: "moving a NPC while they are in the wait pose make her slide on the floor. Let's
-; try not to do that again." So in 0.9.8:
+; And the glide: moving an NPC while she is in the wait pose makes her slide on the floor - not acceptable. So in 0.9.8:
 ;   * THERE IS NO GLIDE. The last stretch is WALKED: every walk to the asked point starts 58 u or more from it.
 ;   * A stop on the way is a real place she walks to and reaches. The leg changes the moment she is there: she is let
 ;     go, the next leg is chosen from where she really stands, and her package is put back.
@@ -3006,7 +3002,7 @@ EndFunction
 
 ; v0.9.6 / v0.9.7: LET HER GO. What ends a hold: our package override off, IdleForceDefaultState, EvaluatePackage -
 ; then time for the engine to really drop it. A walker who is pinned on her marker does not walk when her marker is
-; moved and the same override is taken off and put back in one go (measured 2026-10-10, report 05 §14.3).
+; moved and the same override is taken off and put back in one go (measured 2026-10-10).
 ; The wait: afMinWait, then for as long as the engine still reports OUR package as her current one, 0.25 s at a time,
 ; at most 2 s more (the log says when that was needed - it never was in the fourth run).
 ;   1.0 s  a walker who was HELD in her pose (StartSession) - proven 12 of 12 in the fourth run
@@ -3354,8 +3350,7 @@ Bool Function RoutePoll(Int i, Actor akW, Float afNow)
             ElseIf slotBlockPolls[i] >= 2 && afNow - slotStallT[i] >= 1.0
                 ; v0.9.9: the engine itself says MOVEMENT BLOCKED - on two polls in a row, so one passing reading
                 ; cannot end a leg - and she has not moved for a second: the leg has failed NOW; no waiting out
-                ; the 3 s / 8 s (the user: "if the path is blocked, making the NPCs actually react right away is
-                ; probably the best thing to do"). In the three logged runs type 36 showed in three episodes, each a
+                ; the 3 s / 8 s (a blocked path gets a reaction right away). In the three logged runs type 36 showed in three episodes, each a
                 ; real block with no movement at all, and it was gone the moment she was let go.
                 rpStalled = True
                 rpBlocked = True
@@ -3369,7 +3364,7 @@ Bool Function RoutePoll(Int i, Actor akW, Float afNow)
     EndIf
     ; REACHED = she is ON the stop (8 u: the fourth run's walks ended 1.2-3.9 u from the marker), or she has STOPPED
     ; within 25 u of it. Never while she is still walking: let go 25 u short of an approach stop she would stand
-    ; nearer than 58 u to the asked point, and the walk in would not be walked (the review of 0.9.8).
+    ; nearer than 58 u to the asked point, and the walk in would not be walked (0.9.8).
     Bool rpWayFailed = False            ; a leg on the way round (around / approach) was not reached
     Bool rpReached = False
     If rpD < 8.0
@@ -3377,7 +3372,7 @@ Bool Function RoutePoll(Int i, Actor akW, Float afNow)
     ElseIf rpD < 25.0 && rpStood
         rpReached = True
     ElseIf rpState == 4 && rpD < 60.0 && slotSeenOurs[i] && !slotHasMoved[i] && afNow - slotStallT[i] >= 1.0
-        ; v1.3.0 (the review): a point of a way round less than 60 u away - the engine poses her there instead of walking
+        ; v1.3.0: a point of a way round less than 60 u away - the engine poses her there instead of walking
         ; (the 0.9.8 measurement), so waiting for a walk that will not come is pointless: the point counts as reached
         rpReached = True
     EndIf
@@ -3434,7 +3429,7 @@ Bool Function RoutePoll(Int i, Actor akW, Float afNow)
         EndIf
         ; v0.9.9: a leg on the way round (around / approach) that FAILED.
         ;   she stands NEAR the asked point (RouteNear) -> she is sent IN: the arrival block takes her where she
-        ;       stands (C 9). (The review: asked for 30 cm from 45 cm with a wall behind her, she cannot step back to
+        ;       stands (C 9). (Asked for 30 cm from 45 cm with a wall behind her, she cannot step back to
         ;       her approach stop - she is 10 u from the point, that is not "no way".)
         ;   else the FIRST failure -> one more try from where she stands (RouteStage below)
         ;   else the SECOND       -> NO WAY: the request answers O 17, Standpoint_Failed 7, and she is released.
@@ -3655,7 +3650,7 @@ Event OnUpdate()
                 anyLeashedHold = True
             EndIf
         EndIf
-        ; v1.6.0 (S1 §2.5): a steered session held by the WALK's stand (off the navmesh, no pose): an end of that stand reported
+        ; v1.6.0: a steered session held by the WALK's stand (off the navmesh, no pose): an end of that stand reported
         ; by the walk (a grab, combat, her animation) frees the session silently, as a hold expiry
         If slotHolding[i] && slotSteerHold[i] == 2
             Int hs = slotSteer[i]
@@ -3666,7 +3661,7 @@ Event OnUpdate()
                     If hst.Length >= 19
                         hPhase = hst[0] as Int
                     EndIf
-                    If hPhase == 4 || hPhase == 7 || hPhase < 0     ; (FIX ROUND: 7 = her stand ended after the arrival)
+                    If hPhase == 4 || hPhase == 7 || hPhase < 0     ; (1.6.0: 7 = her stand ended after the arrival)
                         Standpoint.Log("session " + i + " hold expired (STEER #" + hs + ": her stand ended - the walk's own word is in its WALK line)")
                         FreeSession(i)
                     Else
@@ -3686,7 +3681,7 @@ Event OnUpdate()
     EndIf
 EndEvent
 
-; ============================ S2 SPELL HARNESS ==============================
+; ============================ THE TEST-SPELL HARNESS ==============================
 
 Function HandleSlotCast(ObjectReference akTarget)
     If running
@@ -3866,7 +3861,7 @@ String Function RelName(Int aiRel)
     Return "NEAREST"
 EndFunction
 
-; ======================== S1 LEGACY MEASUREMENT TEST ========================
+; ======================== THE LEGACY MEASUREMENT TEST ========================
 ; (unchanged protocol; uses alias 1 / package 0x803 = slot 0's resources.
 ;  Do not run while API sessions are active.)
 

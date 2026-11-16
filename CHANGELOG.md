@@ -2,6 +2,47 @@
 
 Every entry was measured in Skyrim VR unless it says otherwise.
 
+## 2.0.4 — stairs into a pool: the headroom check
+Not yet measured in VR.
+- **Headroom follows her size.** The room a walker needs over her head was her collision bound at full size, also
+  for a smaller NPC (an NPC at scale 0.93 needed 133 u instead of ~124 u). It is now her bound × her scale + 2 u;
+  every headroom check uses it, so an NPC bigger than normal now needs a little more room.
+- **Headroom on a step.** On a stair step the headroom ray started from the average of the step's two floor
+  samples, which can lie inside the upper tread, and read almost no room. It now starts over the higher of the two;
+  the height it must clear is unchanged.
+- **Diagnostics.** Every refused step now writes a `PATH #n HIT <rule>` line: what the ray hit (layer, surface
+  steepness, reference), the room it measured, and — for a ray that ran out of step-overs — the layers it passed.
+  At most 8 lines per rule per plan; no change to how she walks.
+- The plugin's ESP no longer carries a personal author name.
+
+## 2.0.3 — deeper water when the shallow is out of reach
+- **Water with empty bounds.** Some placed water (Skyrim.esm's `Water512`, two Dragonborn water types, many bath
+  mods) has object bounds of zero; the route planner could not see it. Its size is now measured from the loaded 3D
+  (the planner side of Water Finder 1.6.4's fix). Measured in VR: an interior bath down a stair is now seen.
+- **`WalkToWater` depth.** Thigh deep is still the goal (up to 0.45 × her height). Only when no reachable spot is
+  found in that band, a second search accepts water up to 0.60 × her height (or the caller's maximum if lower) and
+  takes the spot nearest thigh depth. Never a spot where she would swim, never a drop off a wall.
+- **`RequestMove` close contact in water.** When the partner stands deeper, the walker's depth limit is tried at
+  0.45, then 0.50, 0.55 and 0.60 × her height — each only if the shallower one found no spot or no route.
+- **Diagnostics.** A failed plan lists how many steps each rule refused, with the first refused steps.
+- Not yet measured in VR except where noted.
+
+## 2.0.2 — SE / AE crash fix
+Not measured in VR (an SE / AE fix).
+- **SE / AE crash.** Without HIGGS, Standpoint installs its own collision-pair filter. Its call into the game's
+  original filter used the wrong calling convention (Havok returns its `hkBool` through a hidden result pointer),
+  which crashed SE / AE. Fixed.
+- **Address Library check.** On SE / AE every Address Library entry Standpoint uses is checked at load, and one
+  line in the log names any that are missing. AE 1.7.99 / 1.7.104 lack the water-height function
+  (`TES::GetWaterHeight`); Standpoint then uses its other water tests instead of stopping the game.
+- Builds carry no personal names or build paths.
+
+## 2.0.1 — fixes from the first integration
+- **`StandpointAPI` with light-plugin and runtime forms.** The Papyrus API used `Game.GetForm`, which returns
+  `None` for FormIDs at 0x80000000 and above; it now uses `Game.GetFormEx`.
+- **A walk that starts inside another NPC's space.** A walker standing in the edge of a standing NPC's keep-out
+  disc (e.g. right after a two-person scene) could find no route at all; the start is now allowed out of it.
+
 ## 2.0.0 — "V2.0": Standpoint walks her itself
 The code of 1.6.1 with the version number changed. Summary of 1.4.0 → 1.6.1:
 - **Steered walking (VR).** Every request (`GoTo`, `GoToPoint`, `RequestMove`, the new `WalkTo` / `WalkToWater`) is

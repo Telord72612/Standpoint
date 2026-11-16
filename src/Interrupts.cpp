@@ -139,16 +139,32 @@ namespace {
     // new broadphase overlap is detected" (SDK hkpCollidableCollidableFilter.h) - the same moment HIGGS's hook answers
     // for, so the known limit is the same: a pair already in contact stays in contact until the two separate.
     // The test is PairFilter itself (lock-free, integers only); anything it does not claim goes to the original.
-    using IsCollisionEnabledFn = bool (*)(const RE::hkpCollidableCollidableFilter*, const RE::hkpCollidable&, const RE::hkpCollidable&);
+    //
+    // v2.0.2 FIX (SE / AE crash, reported 2026-11-09): Havok declares `virtual hkBool isCollisionEnabled(a, b) const`
+    // (Havok 2010 SDK hkpCollidableCollidableFilter.h:28). hkBool is a CLASS (hkBaseTypes.h:535), and MSVC x64 returns a
+    // class from a member function through a HIDDEN pointer: the real call is (this = rcx, hkBool* result = rdx, a = r8,
+    // b = r9) and it returns the result pointer in rax. CommonLib declares it as `bool IsCollisionEnabled(a, b)`, which
+    // is what this hook used before - so it read the collidables one register off, called the original with a garbage /
+    // zero `b` (the game then crashed at SkyrimSE.exe+0EB695C `mov r8d,[r9+0x2C]` = b->collisionFilterInfo) and handed
+    // back a bool where a pointer was expected. Only installed without HIGGS (SE / AE always; VR only with the test switch).
+    struct HkBool { std::int8_t value; };   // Havok's hkBool: one char
+    using IsCollisionEnabledFn = HkBool* (*)(const RE::hkpCollidableCollidableFilter*, HkBool*, const RE::hkpCollidable*,
+        const RE::hkpCollidable*);
     IsCollisionEnabledFn g_origIsCollisionEnabled = nullptr;
     bool                 g_ownFilterHook = false;
 
-    bool OwnIsCollisionEnabled(const RE::hkpCollidableCollidableFilter* a_this, const RE::hkpCollidable& a_a, const RE::hkpCollidable& a_b)
+    HkBool* OwnIsCollisionEnabled(const RE::hkpCollidableCollidableFilter* a_this, HkBool* a_result, const RE::hkpCollidable* a_a,
+        const RE::hkpCollidable* a_b)
     {
-        const std::uint32_t fa = a_a.broadPhaseHandle.collisionFilterInfo.filter;
-        const std::uint32_t fb = a_b.broadPhaseHandle.collisionFilterInfo.filter;
-        if (PairFilter(nullptr, fa, fb) == Higgs::IHiggsInterface001::CollisionFilterComparisonResult::Ignore) return false;
-        return g_origIsCollisionEnabled(a_this, a_a, a_b);
+        if (a_result && a_a && a_b) {
+            const std::uint32_t fa = a_a->broadPhaseHandle.collisionFilterInfo.filter;
+            const std::uint32_t fb = a_b->broadPhaseHandle.collisionFilterInfo.filter;
+            if (PairFilter(nullptr, fa, fb) == Higgs::IHiggsInterface001::CollisionFilterComparisonResult::Ignore) {
+                a_result->value = 0;   // "not enabled": the pair ignores each other
+                return a_result;
+            }
+        }
+        return g_origIsCollisionEnabled(a_this, a_result, a_a, a_b);   // every register passed through unchanged
     }
 
     void InstallOwnPairFilter()

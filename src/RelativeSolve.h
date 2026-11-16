@@ -66,6 +66,8 @@ namespace standpoint_relsolve {
         int          tested{ 0 };          // candidates looked at
         int          probes{ 0 };          // probes asked
         std::string  why;                  // nothing found: the reasons, in short
+        int          deepRefused{ 0 };     // 2.0.3: candidates / approach points refused for WATER (too deep, deep water beside it)
+        float        depth{ 0.f };         // 2.0.3: the found spot's water depth (u; 0 = dry)
     };
 
     // The keep-out circle the planner draws round a_target for a_walker (PathPlanner's StartEx rule before its shrink): the

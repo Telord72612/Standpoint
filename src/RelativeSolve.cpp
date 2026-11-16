@@ -422,6 +422,9 @@ bool Job::Step(double a_budgetMs)
     ++m_steps;
     const auto t0 = std::chrono::steady_clock::now();
     const auto next = [&](const std::string& a_verdict) {
+        // 2.0.3: a refusal for WATER (the probe's "too deep" / "deep water" / "deeper than her depth cap") is counted - a CLOSE
+        // session's next depth tier is worth a try only then (SteerSession DeeperTier)
+        if (a_verdict.find("deep") != std::string::npos) ++m_spot.deepRefused;
         LogCand(m_cands[m_next], a_verdict);
         m_lastWhy = std::format("hour {:.1f}: {}", standpoint::ClockHours(m_cands[m_next].rel), a_verdict);
         ++m_next;
@@ -441,6 +444,7 @@ bool Job::Step(double a_budgetMs)
         m_spot.onNavmesh = standpoint::SnapToNavmeshNear(target, sn) && Dist2D(sn, m_cur) <= kNavFlat && std::fabs(sn.z - m_cur.z) <= kNavHigh;
         std::string ok = a_inCircle ? "OK (close: the approach point and the way in are clear)" : "OK";
         if (m_ignoredHits > 0) ok += std::format(" - its side rays stepped through the target's own body ({} hit(s))", m_ignoredHits);
+        if (m_spot.depth > 4.f) ok += std::format(" - {:.0f} u of water there (the cap {:.2f} x her height)", m_spot.depth, m_ask.depthFrac);
         LogCand(c, ok);
         Finish(true);
     };
@@ -474,6 +478,7 @@ bool Job::Step(double a_budgetMs)
                 continue;
             }
             m_ignoredHits = note.ignored;
+            m_spot.depth = depth;     // 2.0.3: the candidate's water depth (kept with the spot if it is taken)
             m_cur = RE::NiPoint3{ c.pos.x, c.pos.y, floorZ };
             const float flat = Dist2D(m_cur, m_centre);
             const float allowZ = standpoint::ClockLevelAllowance(flat);

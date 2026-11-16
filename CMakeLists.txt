@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(Standpoint LANGUAGES CXX VERSION 2.0.0)
+project(Standpoint LANGUAGES CXX VERSION 2.0.4)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +25,18 @@ set(ENABLE_SKYRIM_SE ON  CACHE BOOL "" FORCE)
 set(ENABLE_SKYRIM_AE ON  CACHE BOOL "" FORCE)
 set(ENABLE_SKYRIM_VR ON  CACHE BOOL "" FORCE)
 set(BUILD_TESTS      OFF CACHE BOOL "" FORCE)
+
+# v2.0.2: release builds carry no build-machine paths. __FILE__ / std::source_location (the file names of SKSE log lines and
+# of CommonLib's assertions) are trimmed to paths relative to these roots (MSVC /d1trimfile; no trailing backslash - it
+# would escape the closing quote). Set before CommonLibSSE so its objects are trimmed too. (No PDB is linked in Release.)
+if(MSVC)
+    foreach(_trim_root IN ITEMS "${CMAKE_SOURCE_DIR}" "${COMMONLIB_PATH}" "${CMAKE_BINARY_DIR}" "${VCPKG_INSTALLED_DIR}")
+        if(_trim_root)
+            file(TO_NATIVE_PATH "${_trim_root}" _trim_native)
+            add_compile_options("/d1trimfile:${_trim_native}")
+        endif()
+    endforeach()
+endif()
 
 add_subdirectory("${COMMONLIB_PATH}" CommonLibSSE EXCLUDE_FROM_ALL)
 

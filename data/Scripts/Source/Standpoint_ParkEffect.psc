@@ -1,6 +1,6 @@
 Scriptname Standpoint_ParkEffect extends ActiveMagicEffect
 { Thin trigger on Standpoint_TestEffect (aimed). A fire-and-forget AME may already be UNBOUND
-  in OnEffectStart (WFTest lesson) — global natives still work, member state does not.
+  in OnEffectStart (measured in an earlier test mod) — global natives still work, member state does not.
   So this does nothing but hand the target to the permanently-bound driver. }
 
 Event OnEffectStart(Actor akTarget, Actor akCaster)

@@ -12,6 +12,9 @@ doors, up and down stairs, off the navmesh into water, and up to the edge of the
 run, jog and walk. See [What's new in V2.0](#whats-new-in-v20). One DLL for Skyrim VR, SE (1.5.97) and AE (1.6
 and 1.7).
 
+**Latest: 2.0.4** — fixes since V2.0 (an SE / AE crash, light-plugin forms in the Papyrus API, deeper water when the
+shallow is out of reach, bath water with empty bounds, stairs into a pool). See [Since V2.0](#since-v20-201--204).
+
 > **Free for everyone.** This project is released into the public domain. Use it, copy it, change it, ship it
 > inside your own mod, sell it — anything you like. **No permission and no credit needed.** (Details at the
 > [bottom](#license).)
@@ -48,7 +51,7 @@ call it: the same requests, the same answers, the same events.
 | Speed | runs while more than 15 m from the spot, jogs down to 3 m, walks the last 3 m (a band shorter than 1 s is skipped) |
 | Doors | ordinary doors are opened (locked, load and trapped doors are walls); a door swinging shut is waited for |
 | Stairs | walked up and down; she never stops on a stair |
-| Water | `WalkToWater`: she walks into the nearest water and goes in until shin, then knee, then thigh deep if there is such a spot within two body lengths — all in one smooth walk |
+| Water | `WalkToWater`: she walks into the nearest water and goes in until shin, then knee, then thigh deep if there is such a spot within two body lengths — all in one smooth walk (2.0.3: if nothing near thigh can be reached, up to 60 % of her height, never swimming) |
 | No way at all | one try with the game's own walk (never for close contact), so a spot behind a load door still works |
 
 **New calls** (Papyrus; the C++ interface has the same):
@@ -69,6 +72,17 @@ EndEvent
 **On SE / AE** the new walking is switched off by default (`Standpoint.ini`: `[DirectWalk] SEAE`), and every
 request uses the game's own walk exactly as in version 1. **On VR** you can switch the new walking off for
 `GoTo` / `GoToPoint` / `RequestMove` with `[Session] Steered = 0`.
+
+## Since V2.0 (2.0.1 – 2.0.4)
+
+Nothing changes in how you call Standpoint. Full details in [CHANGELOG.md](CHANGELOG.md).
+
+| Version | What changed |
+|---|---|
+| 2.0.1 | The Papyrus API finds light-plugin and runtime forms (`Game.GetFormEx`); a walk that starts at the edge of another NPC's space is no longer refused |
+| 2.0.2 | **SE / AE crash fixed** (the collision-pair filter Standpoint installs when HIGGS is absent); missing Address Library entries are named in the log instead of stopping the game (AE 1.7.99 / 1.7.104) |
+| 2.0.3 | `WalkToWater`: thigh deep is still the goal; when nothing in that band can be reached she may go up to 60 % of her height (never swimming). Close-contact `RequestMove` in water tries 45 → 50 → 55 → 60 %. Water with empty object bounds (bath mods, some vanilla water) is measured from its 3D |
+| 2.0.4 | The headroom check follows the NPC's scale and no longer misreads a stair step; every refused step logs what it hit (`PATH #n HIT …`) |
 
 ---
 
@@ -459,7 +473,7 @@ scripts, and the header and guide for modders.
 
 **Needs:** SKSE (SKSEVR for VR, SKSE64 for SE / AE), the matching Address Library, and PapyrusUtil.
 **Optional:** HIGGS in VR (lets Standpoint notice the player grabbing an NPC, and lets two NPCs stand inside
-each other's space); Water Finder 1.6.2 or newer (for `WalkToWater`).
+each other's space); Water Finder 1.6.2 or newer (for `WalkToWater`; 1.6.4 or newer also finds bath water with empty bounds).
 
 One DLL serves VR, SE and AE. **Everything here was measured in Skyrim VR.** SE and AE use the same code and the
 same core game AI, but have not been measured — check one arrival before you build on it there.

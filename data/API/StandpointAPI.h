@@ -206,6 +206,20 @@ namespace StandpointAPI {
     //    not close (a close request with no route answers O 17 at once; any other request then walks ONE engine leg to the
     //    spot, as 1.5.1 did); IsDirectWalking is true during the walk. A target in another interior / worldspace keeps the
     //    engine's walk (load doors).
+    //  * 2.0.4 (2026-11-15, no ABI change): the headroom a route asks follows the walker's scale (a smaller NPC needs less
+    //    height under a lintel or an arch); on a stair step the headroom is tested from over the upper tread (no false "no
+    //    headroom" on real stairs); the Standpoint.log names what each refusing test met (log only).
+    //  * 2.0.3 (2026-11-15, no ABI change): placed water whose base has EMPTY object bounds (some mod pools) is no longer
+    //    invisible - its size comes from its loaded 3D; the wade depth rule prefers shin -> knee -> thigh and goes up to 0.60 x
+    //    her height only when nothing nearer the thigh is reachable (the cap = the smaller of yours and 0.60 x H); and a CLOSE
+    //    request (an NPC-to-NPC wash) AIMS for a spot at most 0.45 x her height deep, and when none is standable or reachable
+    //    ACCEPTS a deeper one, nearest to 0.45 first (0.50, 0.55, then 0.60 x H) - a washee standing waist-deep is reachable.
+    //  * 2.0.2 (2026-11-08, no ABI change): a clean release build (no build-machine paths or names inside the files); and on
+    //    SE / AE the Address Library ids Standpoint calls are checked at start-up (one log line names any missing one) - an
+    //    executable whose table lacks TES::GetWaterHeight (Skyrim AE 1.7.104) reads the cell's water height instead of stopping.
+    //  * 2.0.1 (2026-11-08, no ABI change): two fixes - the Papyrus Standpoint_MoveResult / Standpoint_WalkResult events'
+    //    forms are looked up with GetFormEx (GetForm returns None for an actor from a light / ESL plugin or a high load-order
+    //    slot: akWho / akWhere came as None), and the planner's start-in-a-standing-actor's-disc fix (PathPlanner.cpp).
     //  * 2.0.0 (2026-11-06): 1.6.1 released as Standpoint 2.0 - a version number only, no ABI or behaviour change.
     //  * 1.6.1 (no ABI change): that ONE engine leg ends when it gets stuck - the engine reports her movement blocked, or she
     //    has not moved for 6 s, 80 u or more from the spot - with 'O' 17 at once (1.6.0 waited out the 90 s); a CLOSE request

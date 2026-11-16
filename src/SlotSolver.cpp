@@ -294,7 +294,7 @@ SlotResult Solve(RE::TESObjectREFR* a_target, Relation a_rel, RE::Actor* a_agent
     // v0.7.2 (2026-10-01, VRCD handover 79 §13 - the user: "standpoint is supposed to scan and notice the 'front not
     // accessible' and chose another position"): for an ACTOR target, a side whose ideal point is not standable - the navmesh
     // snap had to SLIDE it more than kBlockedSlide - is BLOCKED: the floor is there, but no room for the walker's body.
-    // Measured 2026-10-01 (Carmella facing a table): her front point slid 50 u along the table edge and was kept as "front";
+    // Measured 2026-10-01 (a test follower facing a table): her front point slid 50 u along the table edge and was kept as "front";
     // the walker stuck 16 u short, wedged between her and the table, and was never turned (93 deg off). At the closest
     // standoff the slide pulled the point 20 u INTO her (27 u from her centre). On open floor every side snapped with 0 u.
     // Pass 0 skips blocked sides, so the next side in rank (the nearest other side) is used. Pass 1 is the pre-0.7.2 rule

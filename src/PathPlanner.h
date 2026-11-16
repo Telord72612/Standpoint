@@ -216,7 +216,7 @@ namespace standpoint_path {
     //  (every walk); 1.3.0 Start and old-flag StartEx plans are unchanged:
     //   * TWO risers (the session's decision on review fix #2): 1.5.0's 26 u x scale (>= 24) on EVERY floor - STATIC, furniture,
     //     clutter, off the navmesh: a 30 u bench is never a step (PlanInfo::riser) - and her body's clamp(0.9 x her hull CONE, 24,
-    //     40) u (Sofia: 34) only between land floors on the navmesh (PlanInfo::riserTerrain); the probes use the same two
+    //     40) u (a test follower: 34) only between land floors on the navmesh (PlanInfo::riserTerrain); the probes use the same two
     //   * TERRAIN on the navmesh: a step whose floor samples are terrain / ground (layers 13 / 17) with the navmesh under them may
     //     be as steep as the engine walks there - slope n.z >= 0.45, rise <= horizontal x tan 63 deg + 8 u (STATIC / furniture /
     //     clutter floors keep the riser rules); a floor beside her past the terrain riser only when the floor halfway out confirms
@@ -273,5 +273,12 @@ namespace standpoint_path {
     inline constexpr float kWadeKneeFrac     = 0.28f;    // ... knee (scan 1's least) ...
     inline constexpr float kWadeThighFrac    = 0.38f;    // ... thigh reached ...
     inline constexpr float kWadeThighMaxFrac = 0.45f;    // ... thigh MAX = the route's cap (the API's default depthFrac)
+    // v2.0.3 THE USER'S DEPTH RULE (2026-11-15: "thigh is preferred ... StandPoint will accept up to the 60% of a NPC's depth, if
+    // there is nothing close to thigh"): a kWadeSpot plan searches shin -> knee -> thigh up to min(depthFrac, kWadeThighMaxFrac) x H
+    // first (tier 1); only when that finds NO reachable wading spot it searches again up to min(depthFrac, kWadeDeepMaxFrac) x H
+    // (tier 2) and takes the reachable spot nearest to thigh depth (the shallowest over 0.45 H). Ask depthFrac >= 0.60 to allow it.
+    // The swim line (0.70 H) is unchanged. A RELATIVE / plain plan has one cap: its depthFrac (a caller that accepts up to 0.60 H
+    // passes kWadeDeepMaxFrac and prefers its own spots <= kWadeThighMaxFrac).
+    inline constexpr float kWadeDeepMaxFrac  = 0.60f;
 
 }  // namespace standpoint_path

@@ -124,7 +124,7 @@ namespace {
     constexpr float       kAheadDzSlope  = 0.5f;
     constexpr float       kRetargetCoastDeg = 90.f;  // ... while the new point lies within this of her travel direction (else held)
     constexpr float       kCoastMinUps   = 30.f;     // ... and she moves at least this fast (else she is held where she is)
-    constexpr float       kWalkUps       = 98.f;     // her walk (Sofia, told 1.0) - the lead when she barely moves
+    constexpr float       kWalkUps       = 98.f;     // her walk (a test follower, told 1.0) - the lead when she barely moves
     // (review R2 #12) a re-aim while a re-aim plan runs: the running plan is KEPT when the new point lies within this of the one it
     // plans for (stpf's own trigger is >= 64 u, a head turn moves its point ~150-300 u) - the latest point is planned when it lands;
     // farther = a different place: planned again at once

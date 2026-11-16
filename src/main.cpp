@@ -1,4 +1,5 @@
 #include "PCH.h"
+#include "AddrLib.h"
 #include "MoveApi.h"
 #include "PathPlanner.h"
 #include "DirectWalk.h"
@@ -42,9 +43,9 @@ namespace standpoint_test {
 }
 
 SKSEPluginInfo(
-    .Version              = { 2, 0, 0 },
+    .Version              = { 2, 0, 4 },
     .Name                 = "Standpoint",
-    .Author               = "mad72",
+    .Author               = "Telord",
     .StructCompatibility  = SKSE::StructCompatibility::Independent,
     .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary
 )
@@ -327,10 +328,22 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse)
     // arrivals land on the spot, stpm's event names and open-floor spots (SteerSession.cpp, RelativeSolve.cpp, TestCmd.cpp, the
     // driver); the planner's and the walk's own fixes (PathPlanner.cpp, NavGraph.cpp, WalkApi.cpp, DirectWalk.cpp).
     // v2.0.0 (2026-11-06, the user: Standpoint "V2.0" is complete): a version-only release of 1.6.1 - no behaviour change.
-    logger::info("Standpoint v2.0.0 loaded (C++ interface revision 4: the walk into water - shin, knee, thigh in one route; revision 3: "
+    // v2.0.1 (2026-11-08): two fixes - the MoveResult / WalkResult events' forms by GetFormEx (StandpointAPI.psc: GetForm gave None
+    // for light-plugin / high-slot actors - BiSR letter 38), and the planner's start inside a standing actor's disc (PathPlanner.cpp).
+    // v2.0.2 (2026-11-08): a privacy-clean release build - no machine paths or user names in the DLL. And (2026-11-09) SE / AE:
+    // the Address Library ids Standpoint uses are checked once against the running table (AddrLib.h) - Skyrim AE 1.7.104 has no
+    // TES::GetWaterHeight id (13358): the planner then reads the cell's water height, never a start-up stop.
+    // v2.0.3 (2026-11-15, BiSR letter 40): the planner sees placed water whose base has empty bounds (its loaded 3D); the wade depth
+    // rule (shin -> knee -> thigh preferred, up to 0.60 x her height when nothing nearer the thigh); the WASHER'S RULE for a close
+    // request ("Accept up to 60%, aim for 45%" - SteerSession.cpp kCloseDepthCaps).
+    // v2.0.4 (2026-11-15, BiSR letter 41): the headroom asked follows her scale (her controller bound's top x GetScale + 2 - the
+    // bound itself is unscaled); a step's middle headroom ray starts over the HIGHER of its floor samples (a real stair tread);
+    // and the PATH log's HIT lines - what each refusing ray met (layer, normal, reference, clearance; casts run out).
+    logger::info("Standpoint v2.0.4 loaded (C++ interface revision 4: the walk into water - shin, knee, thigh in one route; revision 3: "
                  "the walk off the navmesh - our own path over the loaded navmesh, run / jog / walk by the route left, O 26 outside the "
                  "loaded area; the move API: revision 2 - VR: the STEERED SESSIONS (the spot solved by physics, one route, our own "
                  "steering, pinned at the arrival); danger=DROP - loaded actors of the walker's own cell only)");
+    standpoint_addrlib::Check();              // 2.0.2: SE / AE - the ids we call, present in the running Address Library? (AddrLib.h)
     standpoint_direct::Install();             // v1.4.0: the walk driver's hooks (v1.5.0: the self-test on every runtime; SE / AE
                                               // install only with Standpoint.ini [DirectWalk] SEAE = 1 and a READY self-test)
     standpoint_steer::Init();                 // 1.6.0: Standpoint.ini [Session] Steered (VR 1, SE / AE 0), read once, logged

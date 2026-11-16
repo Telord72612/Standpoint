@@ -142,7 +142,7 @@ namespace {
     //   starts from 150 cm on the SAME side ("go" steps) - asked to go from the target's front to her right while in
     //   body contact, the engine did not move her at all.
     // v0.9.3 (after the second run - report 05 §12):
-    //  * The TARGET is held first (a `where = who` line, pose 0, until released): Carmella walked 214 u away during
+    //  * The TARGET is held first (a `where = who` line, pose 0, until released): a test follower walked 214 u away during
     //    the last run, and a request is solved against where the target stands at that moment.
     //  * No step arms anything: every close request toward an NPC gets the pair rule and the glide from the driver.
     //  * 45 cm was reached in the last run on two sides (41 / 46 cm) and missed on two (the engine's walk stopped
@@ -904,7 +904,7 @@ namespace {
         { "C4", MixDoor::kWalkTo,      MixWho::kA, MixAt::kP1,     0, 0.f,   0.f,  0.f, 0, -1.f, 0, MixWait::kWalkResult, 60.f, -1.f, 2.f, false,
           "WalkTo takes her mid-walk: the session fails 3", "WalkTo P1 while her session walks - expected: Failed 3 (the session), then the walk's C" },
         { "C5", MixDoor::kRelease,     MixWho::kA, MixAt::kNone,   0, 0.f,   0.f,  0.f, 0,  0.f, 0, MixWait::kNone,        0.f, -1.f, 2.f, false,
-          "Release: her walk's hold ends", "Release after the walk's hold -1 (letter 29's pattern: hold, your animation, Release)" },
+          "Release: her walk's hold ends", "Release after the walk's hold -1 (the consumer pattern: hold, your animation, Release)" },
         { "C6", MixDoor::kGoToPoint,   MixWho::kA, MixAt::kP2,     0, 0.f,   0.f,  0.f, 0, -1.f, 0, MixWait::kNone,        0.f, 1.0f, 0.f, false,
           "GoToPoint again, released after one second", "GoToPoint P2, hold -1 - Release follows after 1 s" },
         { "C7", MixDoor::kRelease,     MixWho::kA, MixAt::kNone,   0, 0.f,   0.f,  0.f, 0,  0.f, 0, MixWait::kFailed,      8.f, -1.f, 2.f, false,

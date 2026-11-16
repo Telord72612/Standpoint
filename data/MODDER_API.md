@@ -4,7 +4,7 @@
 right way, then hold there."**
 
 This document is the complete contract for integrating Standpoint — written for both
-human modders and AI agents. The numbers in it are field-measured in Skyrim VR on a
+human modders and automated tools. The numbers in it are field-measured in Skyrim VR on a
 ~2,000-mod load order unless they are marked *design value* or *not yet run*. If you read
 nothing else, read **Standpoint V2.0 in one page**, **The Golden Rules** and the
 **Patterns** section.
@@ -106,7 +106,7 @@ A RequestMove gets ONE answer per handle — the first; later endings of the sam
 the DLL, over a few frames) and answers `Failed` 1 (`O` 1) a moment later. Do not treat a handle > 0 as
 "a spot exists" — wait for the event. (`GoTo` still returns 0, with no event, when all 4 slots are busy.)
 
-### No route: the ONE engine leg (the user's rule, 1.6.0 / 1.6.1)
+### No route: the ONE engine leg (1.6.0 / 1.6.1)
 
 When the steered planner finds no route for a session (`O` 1 / 18 / 26 from its walk), Standpoint first
 tries ONE more spot on another side (2 clock hours away or more) for a relative target. Then:
@@ -741,8 +741,8 @@ Papyrus way to **close mode** (slot 8).
 ; once, e.g. in OnInit / OnPlayerLoadGame:
 RegisterForModEvent("Standpoint_MoveResult", "OnMoveResult")
 
-; Lydia walks behind Sofia (hour 6), 48.6 cm away, facing her, close contact, holding until released:
-Int h = StandpointAPI.RequestMove(lydia, sofia, 48.6, 6.0, 0.0, 0, -1.0, 1)
+; the walker walks behind the target NPC (hour 6), 48.6 cm away, facing her, close contact, holding until released:
+Int h = StandpointAPI.RequestMove(walker, targetNpc, 48.6, 6.0, 0.0, 0, -1.0, 1)
 
 Event OnMoveResult(Form akWho, Int aiHandle, String asOutcome, Int aiDetail, Float afDistCm, Float afFacingHour, Float afOrientHour, Form akWhere)
     If aiHandle == h
@@ -903,7 +903,7 @@ EndEvent
   closing.)*
 - **Stairs (1.6.0).** Fixed floors with navmesh under them pass up to a slope of n.z 0.66 (~49°), both
   ways; she never stops ON a stair (a goal on a stair moves to the nearest standable spot on the same
-  floor, 16–160 u). VR-run 1.6.0: up and down at Lakeview. A re-aim on a stair plans from her feet
+  floor, 16–160 u). VR-run 1.6.0: up and down in a two-floor house interior. A re-aim on a stair plans from her feet
   (1.6.1, not yet run).
 - **Her pace — V2.0:** run / jog / walk by the route LEFT (see **Speed bands and the long walk**).
   *(historical, 1.5.1: she walked when she started within 20 m of the point, otherwise jogged and
@@ -943,8 +943,8 @@ EndEvent
 
 ### Speed bands and the long walk (V2.0; since 1.6.0)
 
-The user's rule (2026-11-06): *"jog until 3m, run until 15m"*; a pace that would last under 1 s is
-skipped. It applies to every steered walk — `WalkTo`, `WalkToWater`, `RequestWalk*` and the steered
+The rule: run while more than 15 m are left, jog until 3 m, walk the last 3 m; a pace that would last
+under 1 s is skipped. It applies to every steered walk — `WalkTo`, `WalkToWater`, `RequestWalk*` and the steered
 sessions. Nothing to ask for, no new field.
 
 | Route LEFT (along the route, not straight) | Pace (normalised speed told to the engine) | Measured in VR (1.6.0 run) |
@@ -978,8 +978,8 @@ sessions. Nothing to ask for, no new field.
 
 ### Speed by distance and the far phase (v1.5.1) — HISTORICAL (replaced in 1.6.0 by the section above)
 
-*"StandPoint is a travel mod for up to 200 m: run if more than 30 m, jog from 30 to 10, walk the
-last 10 m — and if she starts within 20 m of her target, just walk."* (the user's rule). It
+The 1.5.1 rule: travel up to 200 m; run if more than 30 m, jog from 30 to 10, walk the last 10 m —
+and if she starts within 20 m of her target, just walk. It
 applies to every `WalkTo`, `WalkToWater` and `RequestWalk` / `RequestWalkToWater`; nothing new
 to ask for, no new field.
 
@@ -1072,7 +1072,7 @@ Bool CanWalkToWater()   ; True when the walk off the navmesh runs here AND Water
 - **`afDepthMinFrac` / `afDepthMaxFrac`** — the wading spot's depth, as fractions of HER height H
   (defaults 0.15 and 0.45). The deeper bound is also the deepest water her route may use (0.05–0.65);
   the engine makes an actor swim at 0.70.
-- **The wade priority (V2.0, since 1.6.0 — the user's rule: "thigh is the max depth"):**
+- **The wade priority (V2.0, since 1.6.0 — the thigh is the maximum depth):**
   1. **entry** = the first reachable **shin-deep** spot (`afDepthMinFrac`, 0.15 H) with water round it
      (5 of its 8 neighbours) that passes the stand-spot test;
   2. **scan 1** within 2 body lengths (2 H) of the entry: a **thigh-deep** spot (0.38 H or more) ends the
@@ -1083,10 +1083,10 @@ Bool CanWalkToWater()   ; True when the walk off the navmesh runs here AND Water
      1.5.x behaviour (the entry spot only).
   5. A seed below a ledge: the planner first floods the floor toward the nearest reachable shin-deep water
      (1.6.1: 4,000 squares / 10,000 questions, headed toward the seed).
-  Measured 1.6.0 (VR): bathhouse submerged **0.30** (knee; no thigh found), lake pond **0.41** (thigh) — the
-  morning's 1.5.1: 0.17 / 0.20. *(Not yet run: the ledge pond on the FIRST try with 1.6.1's flood.)*
+  Measured 1.6.0 (VR): bathhouse submerged **0.30** (knee; no thigh found), lake pond **0.41** (thigh) — 1.5.1
+  in the same places: 0.17 / 0.20. *(Not yet run: the ledge pond on the FIRST try with 1.6.1's flood.)*
 - **Plain `WalkTo` / `stpf` walks wade too:** `afDepthFrac` 0.45 is the default, so a dry walk may cross
-  water up to her thighs when that is the way (the user, 2026-11-06: *"Yes, up to thigh as now"*). Pass
+  water up to her thighs when that is the way (by design). Pass
   a smaller `afDepthFrac` to keep her drier.
 - **`afHoldSeconds`** — as `WalkTo`: `-1` she stands there until `Release` / a new walk / a `GoTo`.
 - **The answer** is the same `Standpoint_WalkResult` event as `WalkTo` (one handle space;
@@ -1302,7 +1302,7 @@ pattern is field-proven end to end (found at 110 m → walked → 0.06 u arrival
 - **A walk taking her from your session answers `X` 3 + `Failed` 3**, not `X` 6 (the header's REVISION 2
   text "X 6 = a newer request / GoTo took this NPC over" is about SESSIONS replacing sessions).
 - **Furniture under a steered `GoTo`:** its allowed entries are the candidates, and the relation only
-  RANKS them — a chair with one allowed entry (Lakeview's NobleChair02) gives the same spot for FRONT /
+  RANKS them — a chair with one allowed entry (e.g. a NobleChair02) gives the same spot for FRONT /
   RIGHT / BACK / LEFT / NEAREST (measured 1.6.1: 5 × 3.6 u). Only when EVERY entry is refused (no room) is
   she stood at a side of its box (the asked side first, at all three distances, 1.6.1); when an entry is
   TAKEN (someone sits there) she is never stood beside it — every entry taken = `Failed` 1 at once.

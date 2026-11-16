@@ -34,7 +34,9 @@
 #include "SlotSolver.h"
 
 #include <array>
+#include <algorithm>
 #include <atomic>
+#include <iterator>
 #include <chrono>
 #include <format>
 #include <memory>
@@ -77,6 +79,13 @@ namespace {
     constexpr double kBudgetMinMs    = 0.2;      // ... at least this each (and always at least one probe)
     constexpr float  kKeepEndedS     = 120.f;    // an ended / handed-off record is forgotten after this (the driver has read it)
     constexpr float  kDepthCap       = standpoint_path::kWadeThighMaxFrac;   // S2-3: the thigh max = the relative spot's water cap
+    // 2.0.3 THE WASHER'S RULE (the user, 2026-11-15: "Accept up to 60%, aim for 45%"; BiSR letter 40 Ask C): a CLOSE request
+    // (the NPC-to-NPC wash) AIMS for a spot <= 0.45 x her height deep; when none is standable / reachable, it ACCEPTS a deeper
+    // one - the nearest to 0.45 first: 0.50, then 0.55, then 0.60 x H (each tier a fresh solve + route, so a spot AND a route at
+    // the shallower cap always win; the planner does no tiering on a relative plan - its depthFrac is the one hard cap, PathPlanner.h
+    // kWadeDeepMaxFrac). Every other session keeps 0.45.
+    constexpr float  kCloseDepthCaps[] = { standpoint_path::kWadeThighMaxFrac, 0.50f, 0.55f, standpoint_path::kWadeDeepMaxFrac };
+    constexpr int    kCloseDepthTiers  = static_cast<int>(std::size(kCloseDepthCaps));
     constexpr float  kNavFlat        = 16.f;     // "on the navmesh" (a point): the solver's snap moved it at most this far ...
     constexpr float  kNavHigh        = 24.f;     // ... and this far up / down
     constexpr float  kAimPastU       = 5.f;      // 1.6.1 (C5): a close request's last point lies this far beyond the spot along her
@@ -228,6 +237,9 @@ namespace {
         bool                         navNearKnown{ false };
         RE::NiPoint3                 navNear{};
         bool                         legToNav{ false };
+        // 2.0.3 (the washer's rule): the depth tier of a CLOSE request (kCloseDepthCaps), and whether its solves met water at all
+        int                          depthTier{ 0 };
+        bool                         waterSeen{ false };
     };
     using SteerPtr = std::shared_ptr<Steer>;
 
@@ -267,6 +279,9 @@ namespace {
     }
 
     bool CloseNpc(const Steer& s) { return s.close && s.targetIsActor && !s.targetIsPlayer; }
+
+    // 2.0.3: the water cap of this session's spot and route, x her height (the washer's tiers for a close request)
+    float DepthCapOf(const Steer& s) { return s.close ? kCloseDepthCaps[(std::clamp)(s.depthTier, 0, kCloseDepthTiers - 1)] : kDepthCap; }
 
     // her final heading now (rad): an actor target is faced LIVE (+ the offset); else the solved / asked heading
     float FinalHeading(const Steer& s, const RE::NiPoint3& a_her, float a_yaw)
@@ -369,7 +384,7 @@ namespace {
         a.close = s.close;
         a.relation = s.relation;
         a.standoffU = s.standoffU;
-        a.depthFrac = kDepthCap;
+        a.depthFrac = DepthCapOf(s);      // 2.0.3: the washer's tier for a close request
         a.avoidRels = s.failedRels;
         if (a_resolve && s.spotKnown) {
             a.preferSet = true;
@@ -390,8 +405,36 @@ namespace {
     // NEAREST NAVMESH POINT (the snap, within 128 u flat - BiSR's shore point on a rock / in the water: she ends at the shore edge,
     // as 1.6.0's leg usually took her; the driver answers a SHORT arrival measured to the point); no navmesh point -> O 1 at once.
     // (The driver ends an engine leg that is blocked or makes no progress - R3's point under the table answers in seconds.)
+    // 2.0.3 THE WASHER'S RULE ("Accept up to 60%, aim for 45%"): a CLOSE request with no standable / reachable spot at its depth cap,
+    // where its solves met water (a candidate refused for water, or a spot in water), is solved again ONE tier deeper
+    // (kCloseDepthCaps: 0.45 -> 0.50 -> 0.55 -> 0.60 x her height - the nearest to 0.45 first). true = a new tier started (the
+    // session solves again, a fresh planning hold if a walk had her); false = not close / no water met / no tier left.
+    bool DeeperTier(Steer& s, const std::string& a_why)
+    {
+        if (!s.close || !s.waterSeen || s.depthTier + 1 >= kCloseDepthTiers) return false;
+        const float from = DepthCapOf(s);
+        ++s.depthTier;
+        logger::info("STEER #{} DEPTH TIER {} of {}: {} at <= {:.2f} x her height - the washer's rule (aim 0.45, accept up to 0.60): "
+                     "solved again at <= {:.2f} x H",
+                     s.id, s.depthTier + 1, kCloseDepthTiers, a_why, from, DepthCapOf(s));
+        if (s.walkId) {
+            s.walkId = 0;                    // (that walk has answered: a new planning hold takes her while the new tier is solved)
+            s.started = false;
+        }
+        s.solveBegun = false;
+        s.spotKnown = false;
+        s.failedRels.clear();
+        s.firstSpotKnown = false;
+        s.firstDet = 0;
+        s.geomDecided = false;
+        s.routeDecided = false;
+        s.phase = kSolving;
+        return true;
+    }
+
     void FinalNoRoute(Steer& s, int a_det, const std::string& a_why)
     {
+        if (DeeperTier(s, a_why)) return;    // 2.0.3: a close request tries the next depth tier first
         if (s.close) {
             End(s, kO, StandpointAPI::kDetailNoWay, a_why + " - close contact: no engine leg, O 17 at once");
             return;
@@ -424,6 +467,8 @@ namespace {
     // FIX ROUND (R1 #5): a solve that finds nothing AFTER the first side had a spot (but no route) answers as no route - never O 1
     void SolveFailed(Steer& s, const std::string& a_why)
     {
+        if (s.solveBegun && s.solve.Finished() && s.solve.Result().deepRefused > 0) s.waterSeen = true;   // 2.0.3
+        if (s.failedRels.empty() && DeeperTier(s, "no standable spot (" + a_why + ")")) return;     // 2.0.3: the washer's next tier
         if (!s.failedRels.empty() && s.firstSpotKnown) {
             s.spot = s.firstSpot;
             s.spotKnown = true;
@@ -536,6 +581,11 @@ namespace {
         }
         s.spot = r;
         s.spotKnown = true;
+        if (r.deepRefused > 0 || r.depth > 4.f) s.waterSeen = true;     // 2.0.3: a later no route may try the next depth tier
+        if (s.close && s.depthTier > 0) {
+            logger::info("STEER #{} DEPTH TIER {} of {}: the spot ({:.0f} u of water) at <= {:.2f} x her height - the washer's rule (aim 0.45, "
+                         "accept up to 0.60)", s.id, s.depthTier + 1, kCloseDepthTiers, r.depth, DepthCapOf(s));
+        }
         if (auto* t = RefOf(s.target)) {
             s.targetAtSolve = t->GetPosition();
             s.targetYawAtSolve = t->GetAngle().z;
@@ -654,7 +704,7 @@ namespace {
                 why = std::format("point {} lies in a standing actor's place ([{:08X}], {:.0f} u)", s.orbitSeg + 1, blocker, br);
             } else {
                 standpoint_path::ProbeNote note;
-                if (!standpoint_path::ProbeSegment(walker, a, b, kDepthCap, true, &note)) {
+                if (!standpoint_path::ProbeSegment(walker, a, b, DepthCapOf(s), true, &note)) {
                     why = std::format("leg {} blocked at {:.0f} u - {}", s.orbitSeg + 1, note.failAt, note.why);
                 }
             }
@@ -732,7 +782,7 @@ namespace {
         // decides). Neither has kPartial: no way = the user's rule (one engine leg), never a half route.
         ask.planFlags = kFloor | kWater | kAllDirect | kNavGuide | kDoors | kActorsKeepOut;
         if (s.kind == kKindPoint) ask.planFlags |= kGoalMayMove;
-        ask.depthFrac = kDepthCap;
+        ask.depthFrac = DepthCapOf(s);    // 2.0.3: the washer's tier for a close request (the planner caps at min(this, 0.60 H))
         if (s.kind != kKindPoint && s.spot.faceLive && s.target) {
             ask.faceWho = s.target;
             ask.faceOffsetDeg = s.spot.faceOffsetRad * kRadToDeg;
@@ -774,7 +824,7 @@ namespace {
         const bool         aimed = (!ask.fixedRoute.empty() && Dist2D(ask.fixedRoute.back(), s.spot.pos) > 1.f) ||
                                    (!ask.tail.empty() && Dist2D(ask.tail.back(), s.spot.pos) > 1.f);
         logger::info("STEER #{} PLAN -> walk #{}: {} from ({:.0f},{:.0f},{:.0f}) to the spot ({:.0f},{:.0f},{:.0f}){}{}{}, facing {}, hold {}, near rule "
-                     "{:.0f} u{}",
+                     "{:.0f} u, water cap {:.2f} x her height{}{}",
                      s.id, h, RouteName(s.routeKind), p.x, p.y, p.z, s.spot.pos.x, s.spot.pos.y, s.spot.pos.z,
                      aimed ? std::format(" (close: her last point {:.0f} u past it on her last leg, so the stop lands on it)", kAimPastU) : std::string(),
                      s.routeKind == kRouteApproach ? std::format(" via E ({:.0f},{:.0f},{:.0f})", s.planTo.x, s.planTo.y, s.planTo.z) : std::string(),
@@ -782,6 +832,8 @@ namespace {
                      ask.faceWho ? std::format("[{:08X}] live + {:.0f} deg{}", ask.faceWho, ask.faceOffsetDeg, ask.faceAll ? " (the whole way)" : "")
                                  : std::format("{:.0f} deg", ask.facingDeg),
                      ask.hold < 0.f ? std::string("-1 (the driver pins her)") : std::string("0 (let go at the point)"), ask.nearRadius,
+                     ask.depthFrac,
+                     s.close ? std::format(" (close: the washer's depth tier {} of {})", s.depthTier + 1, kCloseDepthTiers) : std::string(),
                      s.failedRels.empty() ? std::string() : std::format(" - another side (the first one had no route; route #{})", s.sides));
     }
 
@@ -965,6 +1017,11 @@ namespace {
 
     void NoRoute(Steer& s, int a_det, std::string_view a_word)
     {
+        // 2.0.3: a no-route word that names water counts as "water in the way" for the washer's next depth tier
+        if (a_word.find("deep") != std::string_view::npos || a_word.find("water") != std::string_view::npos ||
+            a_word.find("wad") != std::string_view::npos) {
+            s.waterSeen = true;
+        }
         const bool relative = s.kind != kKindPoint;
         if (relative && a_det != StandpointAPI::kDetailOutsideLoaded && s.failedRels.empty() && s.spotKnown) {
             s.failedRels.push_back(s.spot.rel);
